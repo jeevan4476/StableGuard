@@ -18,5 +18,5 @@ pub struct PolicyAccount {
 }
 
 impl PolicyAccount {
-    pub const LEN: usize = 32 * 2 + 8 * 5 + 1 * 3 + 8;
+    pub const LEN: usize = (32 * 2) + (8 * 6) + (1 * 1) + (1 * 1) + 8;
 }

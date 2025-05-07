@@ -55,4 +55,7 @@ pub enum StableGuardError {
 
     #[msg("custom")]
     InsufficientLpTokensToBurn,
+
+    #[msg("custom")]
+    OracleExponentUnexpected,
 }

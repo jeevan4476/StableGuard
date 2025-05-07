@@ -14,18 +14,20 @@ pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 
 pub const POLICY_TERM: i64 = 7 * 25 * 60 * 60;
 
-pub const DEPED_THRESHOLD_PRICE: u64 = 98_500_000;
+pub const DEPEG_THRESHOLD_PRICE: u64 = 98_500_000;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 
 pub const PREMIUM_RATE_BPS: u16 = 50;
 
-pub const MAX_ORACLE_AGE_SECONDS: i64 = 60;
+pub const MAX_ORACLE_AGE_SECONDS: u64 = 60;
+
+pub const MAX_CONFIDENCE_VALUE: u64 = 10;
 
 pub const USDC_MINT_PUBKEY: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 pub const USDT_MINT_PUBKEY: Pubkey = pubkey!("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
 
-pub const PTYH_USDC_USD_FEED: Pubkey = pubkey!("Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX");
+pub const PYTH_USDC_USD_FEED: Pubkey = pubkey!("Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX");
 
-pub const PTYH_USDT_USD_FEED: Pubkey = pubkey!("HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM");
+pub const PYTH_USDT_USD_FEED: Pubkey = pubkey!("HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM");

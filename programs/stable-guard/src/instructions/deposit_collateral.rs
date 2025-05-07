@@ -3,8 +3,7 @@ use crate::error::StableGuardError;
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked},
-    token_2022::{mint_to_checked, MintToChecked},
+    token::{mint_to, transfer_checked, Mint, MintTo, Token, TokenAccount, TransferChecked},
 };
 
 #[derive(Accounts)]
@@ -20,8 +19,8 @@ pub struct DepositCollateral<'info> {
     #[account(
         init_if_needed,
         payer = underwriter,
-        token::mint = lp_mint,
-        token::authority= underwriter
+        associated_token::mint = lp_mint,
+        associated_token::authority= underwriter
     )]
     pub underwriter_lp_token_account: Account<'info, TokenAccount>,
     #[account(
@@ -68,8 +67,10 @@ impl<'info> DepositCollateral<'info> {
         };
         let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
 
-        transfer_checked(cpi_ctx, deposit_amount, self.usdc_mint.decimals);
+        transfer_checked(cpi_ctx, deposit_amount, self.usdc_mint.decimals)?;
 
+        self.collateral_pool_usdc_account.reload()?;
+        self.lp_mint.reload()?;
         let total_usdc_in_pool_after_deposit = self.collateral_pool_usdc_account.amount;
         let current_lp_supply = self.lp_mint.supply;
         let lp_tokens_to_mint: u64;
@@ -102,7 +103,7 @@ impl<'info> DepositCollateral<'info> {
         let authority_seeds = &[constants::AUTHORITY_SEED, &[authority_seeds_bump]];
         let signer_seeds = &[&authority_seeds[..]];
 
-        let mint_lp_accounts = MintToChecked {
+        let mint_lp_accounts = MintTo {
             mint: self.lp_mint.to_account_info(),
             to: self.underwriter_lp_token_account.to_account_info(),
             authority: self.pool_authority.to_account_info(),
@@ -113,7 +114,7 @@ impl<'info> DepositCollateral<'info> {
             mint_lp_accounts,
             signer_seeds,
         );
-        mint_to_checked(cpi_ctx, lp_tokens_to_mint, self.lp_mint.decimals);
+        mint_to(cpi_ctx, lp_tokens_to_mint)?;
         Ok(())
     }
 }
