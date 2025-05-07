@@ -8,6 +8,8 @@ pub const POOL_SEED: &[u8] = b"collateal_pool";
 
 pub const AUTHORITY_SEED: &[u8] = b"pool_authority";
 
+pub const LP_MINT_SEED: &[u8] = b"lp_mint";
+
 ///Policy Parameters
 
 pub const POLICY_TERM: i64 = 7 * 25 * 60 * 60;
@@ -16,7 +18,7 @@ pub const DEPED_THRESHOLD_PRICE: u64 = 98_500_000;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 
-pub const PREMIOUM_RATE_BPS: u16 = 50;
+pub const PREMIUM_RATE_BPS: u16 = 50;
 
 pub const MAX_ORACLE_AGE_SECONDS: i64 = 60;
 

@@ -32,7 +32,7 @@ pub enum StableGuardError {
     #[msg("Withdrawal amount exceeds the total balance in the collateral pool.")]
     WithdrawalAmountExceedsPoolBalance, // Fallback check
 
-    #[msg("Withdrawal conditions not met (e.g., lockup period).")]
+    #[msg("Withdrawal conditions not met ")]
     WithdrawalConditionsNotMet, // Include if implementing specific conditions
 
     #[msg("The provided Pyth account address is incorrect for the insured stablecoin.")]
@@ -40,4 +40,19 @@ pub enum StableGuardError {
 
     #[msg("An arithmetic error occurred during calculations.")]
     CalculationError,
+
+    #[msg("Invalid Stablecoin Mint")]
+    InvalidStablecoinMint,
+
+    #[msg("Deposit too small, cannot mint lp tokens")]
+    DepositTooSmallToMintLp,
+
+    #[msg("Withdrawal Amount should be greater than 0")]
+    WithdrawalAmountZero,
+
+    #[msg("No Lp tokens to burn")]
+    NolpTokensToBurn,
+
+    #[msg("custom")]
+    InsufficientLpTokensToBurn,
 }
