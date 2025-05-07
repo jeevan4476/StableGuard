@@ -44,20 +44,22 @@ pub struct CheckAndPayout<'info> {
 }
 
 impl<'info> CheckAndPayout<'info> {
-    pub fn check_payout(&mut self, bumps: &CheckAndPayoutBumps) -> Result<()> {
+    pub fn check_payout(&mut self, policy_id: u64, bumps: &CheckAndPayoutBumps) -> Result<()> {
+        let policy = &mut self.policy_account;
+        let clock = &self.clock;
         let pyth_feed_account_info = &self.pyth_price_update;
 
         require!(
-            self.policy_account.status == PolicyStatus::Active,
+            policy.status == PolicyStatus::Active,
             StableGuardError::PolicyAlreadyProcessed
         );
         require!(
-            self.clock.unix_timestamp >= self.policy_account.expiry_timestamp,
+            clock.unix_timestamp >= policy.expiry_timestamp,
             StableGuardError::PolicyNotExpired
         );
 
-        let current_pyth_time = self.clock.unix_timestamp;
-        let expected_pyth_feed_address = match self.policy_account.insured_stablecoin_mint {
+        let current_pyth_time = clock.unix_timestamp;
+        let expected_pyth_feed_address = match policy.insured_stablecoin_mint {
             key if key == constants::USDC_MINT_PUBKEY => constants::PYTH_USDC_USD_FEED,
             key if key == constants::USDT_MINT_PUBKEY => constants::PYTH_USDT_USD_FEED,
             _ => return err!(StableGuardError::InvalidStablecoinMint),
@@ -103,6 +105,7 @@ impl<'info> CheckAndPayout<'info> {
                 .ok_or(StableGuardError::CalculationError)?;
         } else if scale_difference < 0 {
             let divisor = 10u64.pow((-scale_difference) as u32) as i64;
+            require!(divisor != 0, StableGuardError::CalculationError);
             scaled_pyth_price = pyth_mantissa
                 .checked_div(divisor)
                 .ok_or(StableGuardError::CalculationError)?;
@@ -112,7 +115,6 @@ impl<'info> CheckAndPayout<'info> {
 
         if scaled_pyth_price < constants::DEPEG_THRESHOLD_PRICE as i64 {
             //DEPEG condition met
-            let policy = &mut self.policy_account;
 
             let payout_amt_to_transfer = policy.payout_amount;
 

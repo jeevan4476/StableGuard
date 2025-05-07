@@ -41,3 +41,16 @@ pub struct Initialize<'info> {
     pub token_program: Program<'info, Token>,
     pub rent: Sysvar<'info, Rent>,
 }
+
+impl<'info> Initialize<'info> {
+    pub fn initialize(&mut self) -> Result<()> {
+        msg!("StableGuard protocol initialized!");
+        msg!("LP Mint PDA created: {}", self.lp_mint.key());
+        msg!(
+            "Collateral Pool USDC Account PDA created: {}",
+            self.collateral_pool_usdc_account.key()
+        );
+        msg!("Pool Authority PDA: {}", self.pool_authority.key());
+        Ok(())
+    }
+}

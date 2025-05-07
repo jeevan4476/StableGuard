@@ -58,4 +58,7 @@ pub enum StableGuardError {
 
     #[msg("custom")]
     OracleExponentUnexpected,
+
+    #[msg("custom")]
+    WithdrawalResultsInZeroUsdc,
 }
