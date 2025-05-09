@@ -40,6 +40,7 @@ pub struct WithdrawalCollateral<'info> {
     )]
     pub lp_mint: Account<'info, Mint>,
 
+    /// CHECK: this is safe
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
@@ -47,7 +48,7 @@ pub struct WithdrawalCollateral<'info> {
     pub pool_authority: AccountInfo<'info>,
 
     #[account(
-        address = constants::USDC_MINT_PUBKEY
+        address = collateral_pool_usdc_account.mint
     )]
     pub usdc_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,

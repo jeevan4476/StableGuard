@@ -22,6 +22,7 @@ pub struct CheckAndPayout<'info> {
         bump
     )]
     pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
+    /// CHECK: this is safe
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
@@ -34,17 +35,18 @@ pub struct CheckAndPayout<'info> {
     )]
     pub buyer_usdc_account: Account<'info, TokenAccount>,
     #[account(
-        address = constants::USDC_MINT_PUBKEY
+        address = collateral_pool_usdc_account.mint
     )]
     pub usdc_mint: Account<'info, Mint>,
 
+    /// CHECK: this is safe
     pub pyth_price_update: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub clock: Sysvar<'info, Clock>,
 }
 
 impl<'info> CheckAndPayout<'info> {
-    pub fn check_payout(&mut self, policy_id: u64, bumps: &CheckAndPayoutBumps) -> Result<()> {
+    pub fn check_payout(&mut self, _policy_id: u64, bumps: &CheckAndPayoutBumps) -> Result<()> {
         let policy = &mut self.policy_account;
         let clock = &self.clock;
         let pyth_feed_account_info = &self.pyth_price_update;

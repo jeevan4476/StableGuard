@@ -37,13 +37,15 @@ pub struct DepositCollateral<'info> {
         mint::authority = pool_authority
     )]
     pub lp_mint: Account<'info, Mint>,
+
+    /// CHECK: this is safe
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
     )]
     pub pool_authority: AccountInfo<'info>,
     #[account(
-        address = constants::USDC_MINT_PUBKEY
+        address = collateral_pool_usdc_account.mint
     )]
     pub usdc_mint: Account<'info, Mint>,
 

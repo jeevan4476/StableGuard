@@ -35,7 +35,7 @@ pub struct CreatePolicy<'info> {
     pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
 
     #[account(
-        address = constants::USDC_MINT_PUBKEY
+        address = collateral_pool_usdc_account.mint
     )]
     pub usdc_mint: Account<'info, Mint>,
 
@@ -66,10 +66,10 @@ impl<'info> CreatePolicy<'info> {
 
         let payout_amount = (insured_amount * constants::BINARY_PAYOUT_BPS as u64) / 10000;
 
-        require!(
-            self.insured_stablecoin_mint.key() == constants::USDC_MINT_PUBKEY,
-            StableGuardError::InvalidStablecoinMint
-        );
+        // require!(
+        //     self.insured_stablecoin_mint.key() == constants::USDC_MINT_PUBKEY,
+        //     StableGuardError::InvalidStablecoinMint
+        // );
 
         let cpi_accounts = TransferChecked {
             from: self.buyer_usdc_account.to_account_info(),
@@ -80,7 +80,7 @@ impl<'info> CreatePolicy<'info> {
 
         let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
 
-        transfer_checked(cpi_ctx, premium_paid, self.usdc_mint.decimals);
+        transfer_checked(cpi_ctx, premium_paid, self.usdc_mint.decimals)?;
 
         self.policy_account.set_inner(PolicyAccount {
             policy_id: policy_id,

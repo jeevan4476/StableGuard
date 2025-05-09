@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 
 pub const POLICY_SEED: &[u8] = b"policy";
 
-pub const POOL_SEED: &[u8] = b"collateal_pool";
+pub const POOL_SEED: &[u8] = b"collateral_pool";
 
 pub const AUTHORITY_SEED: &[u8] = b"pool_authority";
 
@@ -12,9 +12,9 @@ pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 
 ///Policy Parameters
 
-pub const POLICY_TERM: i64 = 7 * 25 * 60 * 60;
+pub const POLICY_TERM: i64 = 7 * 24 * 60 * 60;
 
-pub const DEPEG_THRESHOLD_PRICE: u64 = 98_500_000;
+pub const DEPEG_THRESHOLD_PRICE: u64 = 985_000;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 
@@ -28,6 +28,6 @@ pub const USDC_MINT_PUBKEY: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEG
 
 pub const USDT_MINT_PUBKEY: Pubkey = pubkey!("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
 
-pub const PYTH_USDC_USD_FEED: Pubkey = pubkey!("Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX");
+pub const PYTH_USDC_USD_FEED: Pubkey = pubkey!("Gnt27xtC473ZT2Mw5u8wZ68Z3gULkSTb5DuxJy7eJotD");
 
-pub const PYTH_USDT_USD_FEED: Pubkey = pubkey!("HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM");
+pub const PYTH_USDT_USD_FEED: Pubkey = pubkey!("3vxLXJqLqF3JG5TCbYycbKWRBbCJQLxudq4nTEMAscUX");

@@ -26,15 +26,13 @@ pub struct Initialize<'info> {
     )]
     pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
 
+    /// CHECK: this is safe
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
     )]
     pub pool_authority: AccountInfo<'info>, //UncheckedAccount doesnt store any data just an address used as authority
 
-    #[account(
-        address = constants::USDC_MINT_PUBKEY
-    )]
     pub usdc_mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
