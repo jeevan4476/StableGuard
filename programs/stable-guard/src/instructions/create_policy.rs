@@ -66,10 +66,11 @@ impl<'info> CreatePolicy<'info> {
 
         let payout_amount = (insured_amount * constants::BINARY_PAYOUT_BPS as u64) / 10000;
 
-        // require!(
-        //     self.insured_stablecoin_mint.key() == constants::USDC_MINT_PUBKEY,
-        //     StableGuardError::InvalidStablecoinMint
-        // );
+        if self.insured_stablecoin_mint.key() != constants::USDC_MINT_PUBKEY
+            && self.insured_stablecoin_mint.key() != constants::USDT_MINT_PUBKEY
+        {
+            return err!(StableGuardError::UnsupportedStablecoinMint);
+        }
 
         let cpi_accounts = TransferChecked {
             from: self.buyer_usdc_account.to_account_info(),

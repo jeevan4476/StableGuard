@@ -61,4 +61,7 @@ pub enum StableGuardError {
 
     #[msg("custom")]
     WithdrawalResultsInZeroUsdc,
+
+    #[msg("Unsupported Stablecoin")]
+    UnsupportedStablecoinMint,
 }

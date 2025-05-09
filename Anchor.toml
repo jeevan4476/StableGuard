@@ -17,3 +17,18 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+# --- Updated section for test validator configuration ---
+[test.validator]
+# Use mainnet-beta for cloning these stablecoin mints as it provides the correct state
+url = "https://api.mainnet-beta.solana.com"
+
+[[test.validator.clone]]
+address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" # USDC Mint
+
+[[test.validator.clone]]
+address = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" # USDT Mint
+
+# If you clone other accounts later (e.g., Pyth oracles) that are stable on devnet,
+# you might use a devnet URL then, or a mix if Anchor.toml allows multiple validator configs (it doesn't directly).
+# For now, using mainnet-beta for these mints is the clear path.

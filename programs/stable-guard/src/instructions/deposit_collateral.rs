@@ -32,7 +32,7 @@ pub struct DepositCollateral<'info> {
     pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
     #[account(
         mut,
-        seeds = [constants::LP_MINT_SEED],
+        seeds = [constants::LP_MINT_SEED,usdc_mint.key().as_ref()],
         bump,
         mint::authority = pool_authority
     )]
@@ -72,7 +72,6 @@ impl<'info> DepositCollateral<'info> {
         transfer_checked(cpi_ctx, deposit_amount, self.usdc_mint.decimals)?;
 
         self.collateral_pool_usdc_account.reload()?;
-        self.lp_mint.reload()?;
         let total_usdc_in_pool_after_deposit = self.collateral_pool_usdc_account.amount;
         let current_lp_supply = self.lp_mint.supply;
         let lp_tokens_to_mint: u64;
@@ -93,6 +92,10 @@ impl<'info> DepositCollateral<'info> {
                     .checked_div(total_usdc_before_deposit as u128)
                     .ok_or(StableGuardError::CalculationError)?;
                 lp_tokens_to_mint = lp_to_mint_u128 as u64;
+                //fn safe_u128_to_u64_rounded_up(value: u128) -> Result<u64> {
+                //     let rounded = (value + (1 << 64) - 1) / (1 << 64);
+                //     u64::try_from(rounded).map_err(|_| StableGuardError::CalculationError.into())
+                // }
             }
             require!(
                 lp_tokens_to_mint > 0,
