@@ -9,7 +9,7 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = authority,
-        seeds = [constants::LP_MINT_SEED],
+        seeds = [constants::LP_MINT_SEED,mint.key().as_ref()],//Updated if multiple pools are initialized then lp tokens are distinct to each pool 
         mint::decimals = 6,
         mint::authority = pool_authority,
         bump
@@ -19,12 +19,12 @@ pub struct Initialize<'info> {
     #[account(
         init,
         payer = authority,
-        seeds= [constants::POOL_SEED,usdc_mint.key().as_ref()],
+        seeds= [constants::POOL_SEED,mint.key().as_ref()],
         bump,
-        token::mint = usdc_mint,
+        token::mint = mint,
         token::authority = pool_authority
     )]
-    pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
+    pub collateral_token_pool: Account<'info, TokenAccount>,
 
     /// CHECK: this is safe
     #[account(
@@ -33,11 +33,10 @@ pub struct Initialize<'info> {
     )]
     pub pool_authority: AccountInfo<'info>, //UncheckedAccount doesnt store any data just an address used as authority
 
-    pub usdc_mint: Account<'info, Mint>,
+    pub mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 impl<'info> Initialize<'info> {
@@ -46,7 +45,7 @@ impl<'info> Initialize<'info> {
         msg!("LP Mint PDA created: {}", self.lp_mint.key());
         msg!(
             "Collateral Pool USDC Account PDA created: {}",
-            self.collateral_pool_usdc_account.key()
+            self.collateral_token_pool.key()
         );
         msg!("Pool Authority PDA: {}", self.pool_authority.key());
         Ok(())

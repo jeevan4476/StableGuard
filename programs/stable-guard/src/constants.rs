@@ -12,9 +12,11 @@ pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 
 ///Policy Parameters
 
+pub const SECONDS_30: u64 = 30;
+
 pub const POLICY_TERM: i64 = 7 * 24 * 60 * 60;
 
-pub const DEPEG_THRESHOLD_PRICE: u64 = 985_000;
+pub const DEPEG_THRESHOLD_PRICE: u64 = 985_000_000;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 

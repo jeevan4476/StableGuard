@@ -25,7 +25,7 @@ pub mod stable_guard {
         policy_id: u64,
     ) -> Result<()> {
         ctx.accounts
-            .createpolicy(insured_amount, policy_id, &ctx.bumps)?;
+            .createpolicy(&ctx.bumps, insured_amount, policy_id)?;
         Ok(())
     }
 
@@ -39,12 +39,12 @@ pub mod stable_guard {
         ctx: Context<WithdrawalCollateral>,
         lp_amount_to_burn: u64,
     ) -> Result<()> {
-        ctx.accounts.withdraw(lp_amount_to_burn, &ctx.bumps)?;
+        ctx.accounts.withdraw(&ctx.bumps, lp_amount_to_burn)?;
         Ok(())
     }
 
     pub fn check_and_payout(ctx: Context<CheckAndPayout>, policy_id: u64) -> Result<()> {
-        ctx.accounts.check_payout(policy_id, &ctx.bumps)?;
+        ctx.accounts.check_payout(&ctx.bumps, policy_id)?;
         Ok(())
     }
 }

@@ -17,24 +17,23 @@ pub struct WithdrawalCollateral<'info> {
     )]
     pub underwriter_lp_account: Account<'info, TokenAccount>,
 
-    #[account(
-        init_if_needed,
-        payer = underwriter,
-        token::mint = usdc_mint,
+    #[account( 
+        mut,
+        token::mint = mint,
         token::authority= underwriter
     )]
-    pub underwriter_usdc_account: Account<'info, TokenAccount>,
+    pub underwriter_token_account: Account<'info, TokenAccount>,
     #[account(
         mut,
-        token::mint = usdc_mint,
-        seeds = [constants::POOL_SEED,usdc_mint.key().as_ref()],
+        token::mint = mint,
+        seeds = [constants::POOL_SEED,mint.key().as_ref()],
         bump
     )]
-    pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
+    pub collateral_token_pool: Account<'info, TokenAccount>,
 
     #[account(
         mut,
-        seeds = [ constants::LP_MINT_SEED],
+        seeds = [ constants::LP_MINT_SEED,mint.key().as_ref()],
         bump,
         mint::authority = pool_authority
     )]
@@ -48,45 +47,54 @@ pub struct WithdrawalCollateral<'info> {
     pub pool_authority: AccountInfo<'info>,
 
     #[account(
-        address = collateral_pool_usdc_account.mint
+        address = collateral_token_pool.mint
     )]
-    pub usdc_mint: Account<'info, Mint>,
+    pub mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
 impl<'info> WithdrawalCollateral<'info> {
     pub fn withdraw(
         &mut self,
-        lp_amt_to_burn: u64,
         bumps: &WithdrawalCollateralBumps,
+        lp_amt_to_burn: u64,
     ) -> Result<()> {
         require!(lp_amt_to_burn > 0, StableGuardError::WithdrawalAmountZero);
         require!(
             self.underwriter_lp_account.amount >= lp_amt_to_burn,
             StableGuardError::InsufficientLpTokensToBurn
         );
-        let total_usdc_pool = self.collateral_pool_usdc_account.amount;
+        let collateral_token_pool_amount = self.collateral_token_pool.amount;
         let total_lp_supply = self.lp_mint.supply;
 
         require!(total_lp_supply > 0, StableGuardError::NolpTokensToBurn);
 
-        let usdc_to_withdraw_u128 = (lp_amt_to_burn as u128)
-            .checked_mul(total_usdc_pool as u128)
+        let lp_amt_to_burn_u128 = u128::try_from(lp_amt_to_burn)
+        .map_err(|_| StableGuardError::CalculationError)?;
+        
+        let collateral_pool_amt_u128 = u128::try_from(collateral_token_pool_amount)
+        .map_err(|_| StableGuardError::CalculationError)?;
+        
+        let total_lp_supply_u128 = u128::try_from(total_lp_supply)
+        .map_err(|_| StableGuardError::CalculationError)?;
+
+        let collateral_to_withdraw_u128 = (lp_amt_to_burn_u128)
+            .checked_mul(collateral_pool_amt_u128)
             .ok_or(StableGuardError::CalculationError)?
-            .checked_div(total_lp_supply as u128)
+            .checked_div(total_lp_supply_u128)
             .ok_or(StableGuardError::CalculationError)?;
 
-        let usdc_to_withdraw = usdc_to_withdraw_u128 as u64;
+        let collateral_to_withdraw = u64::try_from(collateral_to_withdraw_u128)
+        .or(Err(StableGuardError::CalculationError))?;
         require!(
-            usdc_to_withdraw > 0,
+            collateral_to_withdraw > 0,
             StableGuardError::WithdrawalResultsInZeroUsdc
         );
         //sanity check to ensure amout of lp to burn is less than total lp supply
         require!(
-            total_usdc_pool >= usdc_to_withdraw,
+            collateral_token_pool_amount >= collateral_to_withdraw,
             StableGuardError::WithdrawalAmountExceedsPoolBalance
         );
         //Burn LP tkns
@@ -100,9 +108,9 @@ impl<'info> WithdrawalCollateral<'info> {
         burn(cpi_ctx, lp_amt_to_burn)?;
 
         let cpi_account = TransferChecked {
-            from: self.collateral_pool_usdc_account.to_account_info(),
-            to: self.underwriter_usdc_account.to_account_info(),
-            mint: self.usdc_mint.to_account_info(),
+            from: self.collateral_token_pool.to_account_info(),
+            to: self.underwriter_token_account.to_account_info(),
+            mint: self.mint.to_account_info(),
             authority: self.pool_authority.to_account_info(),
         };
 
@@ -116,7 +124,7 @@ impl<'info> WithdrawalCollateral<'info> {
             signer_seeds,
         );
 
-        transfer_checked(cpi_ctx, usdc_to_withdraw, self.usdc_mint.decimals)
+        transfer_checked(cpi_ctx, collateral_to_withdraw, self.mint.decimals)
         //tranfer USDC to underwriter
     }
 }

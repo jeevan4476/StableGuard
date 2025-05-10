@@ -8,14 +8,20 @@ use anchor_spl::{
 
 #[derive(Accounts)]
 pub struct DepositCollateral<'info> {
+    // #[account(
+    //     seeds=[constants::POLICY_SEED,policy_account.buyer.key().as_ref(),policy_account.policy_id.to_le_bytes().as_ref()],
+    //     bump=policy_account.bump,
+    //     has_one=mint
+    // )]
+    // pub policy_account: Account<'info, PolicyAccount>,
     #[account(mut)]
     pub underwriter: Signer<'info>,
     #[account(
         mut,
-        token::mint = usdc_mint,
+        token::mint = mint,
         token::authority = underwriter
     )]
-    pub underwriter_usdc_account: Account<'info, TokenAccount>,
+    pub underwriter_token_account: Account<'info, TokenAccount>,
     #[account(
         init_if_needed,
         payer = underwriter,
@@ -25,14 +31,14 @@ pub struct DepositCollateral<'info> {
     pub underwriter_lp_token_account: Account<'info, TokenAccount>,
     #[account(
         mut,
-        seeds = [constants::POOL_SEED, usdc_mint.key().as_ref()],
+        seeds = [constants::POOL_SEED, mint.key().as_ref()],
         bump,
-        token::mint = usdc_mint
+        token::mint = mint
     )]
-    pub collateral_pool_usdc_account: Account<'info, TokenAccount>,
+    pub collateral_token_pool: Account<'info, TokenAccount>,
     #[account(
         mut,
-        seeds = [constants::LP_MINT_SEED,usdc_mint.key().as_ref()],
+        seeds = [constants::LP_MINT_SEED,mint.key().as_ref()],
         bump,
         mint::authority = pool_authority
     )]
@@ -44,14 +50,11 @@ pub struct DepositCollateral<'info> {
         bump
     )]
     pub pool_authority: AccountInfo<'info>,
-    #[account(
-        address = collateral_pool_usdc_account.mint
-    )]
-    pub usdc_mint: Account<'info, Mint>,
+
+    pub mint: Account<'info, Mint>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
@@ -62,17 +65,17 @@ impl<'info> DepositCollateral<'info> {
         bumps: &DepositCollateralBumps,
     ) -> Result<()> {
         let cpi_accounts = TransferChecked {
-            from: self.underwriter_usdc_account.to_account_info(),
-            to: self.collateral_pool_usdc_account.to_account_info(),
+            from: self.underwriter_token_account.to_account_info(),
+            to: self.collateral_token_pool.to_account_info(),
             authority: self.underwriter.to_account_info(),
-            mint: self.usdc_mint.to_account_info(),
+            mint: self.mint.to_account_info(),
         };
         let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
 
-        transfer_checked(cpi_ctx, deposit_amount, self.usdc_mint.decimals)?;
+        transfer_checked(cpi_ctx, deposit_amount, self.mint.decimals)?;
 
-        self.collateral_pool_usdc_account.reload()?;
-        let total_usdc_in_pool_after_deposit = self.collateral_pool_usdc_account.amount;
+        self.collateral_token_pool.reload()?;
+        let total_usdc_in_pool_after_deposit = self.collateral_token_pool.amount;
         let current_lp_supply = self.lp_mint.supply;
         let lp_tokens_to_mint: u64;
 

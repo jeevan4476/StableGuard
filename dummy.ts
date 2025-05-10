@@ -1,411 +1,399 @@
-import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { StableGuard } from "../target/types/stable_guard";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import {
-    Connection,
-    Keypair,
-    LAMPORTS_PER_SOL,
-    PublicKey,
-    SystemProgram,
-    Transaction,
-} from "@solana/web3.js";
-import {
-    createMint as splCreateMint,
-    getAssociatedTokenAddressSync,
-    mintToChecked as splMintToChecked,
-    getOrCreateAssociatedTokenAccount,
-    getMint,
-    getAccount,
-    Account,
-    Mint as SplMintInfo
-} from "@solana/spl-token";
-import { assert } from "chai";
-import { BN } from "bn.js";
+// pub use crate:: constants;
+// use crate:: {
+//     error:: StableGuardError, PolicyAccount, PolicyStatus, SECONDS_30, USDC_MINT_PUBKEY,
+//         USDT_MINT_PUBKEY,
+// };
+// use anchor_lang:: prelude::*;
+// use anchor_spl:: token:: { transfer_checked, Mint, Token, TokenAccount, TransferChecked };
+// use pyth_solana_receiver_sdk:: price_update:: { get_feed_id_from_hex, PriceUpdateV2 };
 
-const airdropSOL = async (
-    to: anchor.web3.PublicKey,
-    provider: anchor.AnchorProvider,
-    amountSol: number
-) => {
-    try {
-        const signature = await provider.connection.requestAirdrop(
-            to,
-            anchor.web3.LAMPORTS_PER_SOL * amountSol
-        );
-        const latestBlockhash = await provider.connection.getLatestBlockhash();
-        await provider.connection.confirmTransaction({
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            signature: signature,
-        }, "confirmed");
-    } catch (e) {
-        console.error(`Error airdropping SOL to ${to.toBase58()}: ${e}`);
-    }
-};
+// #[derive(Accounts)]
+// #[instruction(policy_id: u64)]
+// pub struct CheckAndPayout < 'info> {
+//     #[account(mut)]
+//     pub buyer: Signer < 'info>,
+//     #[account(
+//             mut,
+//             seeds = [constants:: POLICY_SEED, buyer.key().as_ref(), policy_id.to_le_bytes().as_ref()],
+//             bump = policy_account.bump,
+//             has_one = buyer
+//         )]
+//     pub policy_account: Account < 'info, PolicyAccount>,
+//     #[account(
+//             mut,
+//             seeds = [constants:: POOL_SEED, mint.key().as_ref()],
+//             bump
+//         )]
+//     pub collateral_token_pool: Account < 'info, TokenAccount>,
+//     /// CHECK: this is safe
+//     #[account(
+//             seeds = [constants:: AUTHORITY_SEED],
+//             bump
+//         )]
+//     pub pool_authority: AccountInfo < 'info>,
+//     #[account(
+//             mut,
+//             token:: mint = mint,
+//             token:: authority = policy_account.buyer
+//         )]
+//     pub buyer_token_account: Account < 'info, TokenAccount>,
+//     #[account(
+//             address = collateral_token_pool.mint
+//         )]
+//     pub mint: Account < 'info, Mint>,
+//     pub pyth_price_update: Account < 'info, PriceUpdateV2>,
+//     pub token_program: Program < 'info, Token>,
+// }
 
-const createMintHelper = async (
-    provider: anchor.AnchorProvider,
-    mintKeypair: anchor.web3.Keypair,
-    mintAuthority: anchor.web3.PublicKey,
-    freezeAuthority: anchor.web3.PublicKey | null,
-    decimals: number
-) => {
-    try {
-        const mint = await splCreateMint(
-            provider.connection,
-            (provider.wallet as anchor.Wallet).payer,
-            mintAuthority,
-            freezeAuthority,
-            decimals,
-            mintKeypair
-        );
-        return mintKeypair.publicKey;
-    } catch (e) {
-        console.error(`Error creating Mint Account ${mintKeypair.publicKey.toBase58()}: ${e}`);
-        throw e;
-    }
-};
+// impl < 'info> CheckAndPayout<'info > {
+//     pub fn check_payout(&mut self, policy_id: u64, bumps: & CheckAndPayoutBumps) -> Result < () > {
+//         let policy = & mut self.policy_account;
+//         let pyth_feed_account_info = & self.pyth_price_update;
+//         let maximum_age: u64 = SECONDS_30;
 
-const createAtaAndMintTokens = async (
-    provider: anchor.AnchorProvider,
-    mint: anchor.web3.PublicKey,
-    owner: anchor.web3.Keypair,
-    amountToMint: number,
-    mintAuthorityKeypair: anchor.web3.Keypair
-) => {
-    try {
-        const ata = await getOrCreateAssociatedTokenAccount(
-            provider.connection,
-            owner,
-            mint,
-            owner.publicKey
-        );
-        await splMintToChecked(
-            provider.connection,
-            owner,
-            mint,
-            ata.address,
-            mintAuthorityKeypair,
-            amountToMint * Math.pow(10, 6),
-            6
-        );
-        return ata.address;
-    } catch (e) {
-        console.error(`Error creating ATA and minting for mint ${mint.toBase58()}: ${e}`);
-        throw e;
-    }
-};
+//         require!(
+//             policy.status == PolicyStatus:: Active,
+//         StableGuardError:: PolicyAlreadyProcessed
+//         );
+//         require!(
+//             Clock:: get()?.unix_timestamp >= policy.expiry_timestamp,
+//     StableGuardError:: PolicyNotExpired
+//         );
 
-const createMockPythFeed = async (
-    provider: anchor.AnchorProvider,
-    feedKeypair: anchor.web3.Keypair,
-    price: number,
-    expo: number,
-    conf: number = 0
-) => {
-    const dataSize = 3312;
-    const lamports = await provider.connection.getMinimumBalanceForRentExemption(dataSize);
-    const transaction = new Transaction().add(
-        SystemProgram.createAccount({
-            fromPubkey: (provider.wallet as anchor.Wallet).publicKey,
-            newAccountPubkey: feedKeypair.publicKey,
-            space: dataSize,
-            lamports,
-            programId: new PublicKey("gSbePebfvPy7tRqimPoVecS2UsBvYv46ynrzWocc92s"),
-        })
-    );
-    await provider.sendAndConfirm(transaction, [feedKeypair]);
-    return feedKeypair.publicKey;
-};
+// // let current_pyth_time = Clock::get()?.unix_timestamp;
+// let relevant_feed_id: & str = match policy.insured_stablecoin_mint {
+//     key if key == constants:: USDC_MINT_PUBKEY => {
+//         "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"
+//     }
+//             key if key == constants:: USDT_MINT_PUBKEY => {
+//     "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b"
+// }
+// _ => return err!(StableGuardError:: InvalidStablecoinMint),
+//         };
 
-const mintTokensHelper = async (
-    provider: anchor.AnchorProvider,
-    mint: anchor.web3.PublicKey,
-    destinationAta: anchor.web3.PublicKey,
-    authorityKeypair: anchor.web3.Keypair, // Keypair with Mint Authority
-    amount: number // Amount in whole tokens (e.g., 1000 USDC)
-) => {
-    try {
-        const decimals = 6; // Assuming 6 decimals for mock USDC/USDT
-        const amountScaled = BigInt(amount * Math.pow(10, decimals));
+// // require_keys_eq!(
+// //     self.pyth_price_update.key(),
+// //     expected_pyth_feed_address,
+// //     StableGuardError::InvalidPythAccount
+// // );
 
-        await splMintToChecked(
-            provider.connection,
-            (provider.wallet as anchor.Wallet).payer, // Payer for the transaction fee
-            mint,
-            destinationAta,
-            authorityKeypair, // Authority signing for the mint operation
-            amountScaled,
-            decimals
-        );
-        console.log(`Minted ${amount} tokens to ${destinationAta.toBase58()}`);
-    } catch (e) {
-        console.error(`Error minting tokens to ${destinationAta.toBase58()}: ${e}`);
-        throw e;
-    }
-};
+// // let usdc_feed_id: [u8; 32] = get_feed_id_from_hex(
+// //     "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a",
+// // )?;
+// // let usdc_price = self.pyth_price_update.get_price_no_older_than(
+// //     &Clock::get()?,
+// //     maximum_age,
+// //     &usdc_feed_id,
+// // )?;
+// // msg!(
+// //     "The price USDC is {} * 10^{}",
+// //     usdc_price.price,
+// //     usdc_price.exponent
+// // );
+// // let usdt_feed_id: [u8; 32] = get_feed_id_from_hex(
+// //     "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b",
+// // )?;
+// // let usdt_price = self.pyth_price_update.get_price_no_older_than(
+// //     &Clock::get()?,
+// //     maximum_age,
+// //     &usdt_feed_id,
+// // )?;
+// // msg!(
+// //     "The price USDC is {} * 10^{}",
+// //     usdt_price.price,
+// //     usdt_price.exponent
+// // );
 
-describe("stable-guard", () => {
-    anchor.setProvider(anchor.AnchorProvider.env());
-    const provider = anchor.getProvider() as anchor.AnchorProvider;
-    const connection = provider.connection;
-    const program = anchor.workspace.StableGuard as Program<StableGuard>;
+// // let relevant_feed_id: &str = match policy.insured_stablecoin_mint {
+// //     k if k == USDC_MINT_PUBKEY => {
+// //         "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"
+// //     }
+// //     k if k == USDT_MINT_PUBKEY => {
+// //         "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b"
+// //     }
+// //     _ => return err!(StableGuardError::InsufficientLpTokensToBurn),
+// // };
 
-    let authorityKp: anchor.web3.Keypair;
-    let buyerKp: anchor.web3.Keypair;
-    let underwriterKp: anchor.web3.Keypair;
+// let feed_id: [u8; 32] = get_feed_id_from_hex(relevant_feed_id) ?;
 
-    let usdcMint: anchor.web3.PublicKey;
-    let usdcMintKeypair: anchor.web3.Keypair;
+// let price_data = pyth_feed_account_info.get_price_no_older_than(
+//             & Clock:: get() ?,
+//     maximum_age,
+//             & feed_id,
+// ) ?;
 
-    let lpMintPda: anchor.web3.PublicKey;
-    let collateralPoolPda: anchor.web3.PublicKey;
-    let poolAuthorityPda: anchor.web3.PublicKey;
+// msg!(
+//     "Price for feed {} is {} * 10^{}",
+//     relevant_feed_id,
+//     price_data.price,
+//     price_data.exponent
+// );
 
-    let testBuyerKp: Keypair;
-    let testUnderwriterKp: Keypair;
-    let testBuyerUsdcAta: PublicKey;
-    let testUnderwriterUsdcAta: PublicKey;
-    let testUnderwriterLpAta: PublicKey;
-    let testPolicyId: anchor.BN;
-    let testPolicyPda: PublicKey;
-    let testMockPythFeedKp: Keypair;
-    let testMockPythFeedAddress: PublicKey;
+// //price_data contains price(i64) expo(i32) confidence(u64)
+// require!(
+//     price_data.conf < constants:: MAX_CONFIDENCE_VALUE,
+//     StableGuardError:: OracleConfidenceTooWide
+// );
 
-    beforeEach(async () => {
-        // Use beforeEach to reset state for each check_and_payout test if needed,
-        // or do a one-time setup in a nested describe's before block.
-        console.log("Setting up for check_and_payout test...");
+// let pyth_mantissa = price_data.price;
 
-        // 1. Create fresh buyer and underwriter for isolation
-        testBuyerKp = Keypair.generate();
-        testUnderwriterKp = Keypair.generate();
-        await airdropSOL(testBuyerKp.publicKey, provider, 1);
-        await airdropSOL(testUnderwriterKp.publicKey, provider, 1);
+// let pyth_exponent = price_data.exponent;
 
-        // 2. Create/Fund User ATAs
-        // Buyer needs USDC to pay premium
-        const buyerAtaInfo = await getOrCreateAssociatedTokenAccount(
-            provider.connection, testBuyerKp, usdcMint, testBuyerKp.publicKey
-        );
-        testBuyerUsdcAta = buyerAtaInfo.address;
-        await mintTokensHelper(provider, usdcMint, testBuyerUsdcAta, authorityKp, 100); // Mint 100 USDC
+// const TARGET_DECIMALS: i32 = 8;
+// // If pyth_exponent is -8 and TARGET_DECIMALS is 8, we need to multiply by 10^(8-8) = 10^0 = 1.
 
-        // Underwriter needs USDC to deposit collateral
-        const underwriterAtaInfo = await getOrCreateAssociatedTokenAccount(
-            provider.connection, testUnderwriterKp, usdcMint, testUnderwriterKp.publicKey
-        );
-        testUnderwriterUsdcAta = underwriterAtaInfo.address;
-        await mintTokensHelper(provider, usdcMint, testUnderwriterUsdcAta, authorityKp, 5000); // Mint 5000 USDC
+// let scaled_pyth_price: i64;
 
-        // Underwriter needs an LP token account (init_if_needed handles this in deposit)
-        testUnderwriterLpAta = getAssociatedTokenAddressSync(lpMintPda, testUnderwriterKp.publicKey);
+// if pyth_exponent > 0 {
+//     return err!(StableGuardError:: OracleExponentUnexpected);
+// }
+// let scale_difference = pyth_exponent - (-TARGET_DECIMALS);
 
-        // 3. Underwriter deposits collateral
-        const depositAmount = new anchor.BN(2000 * 1_000_000); // Deposit 2000 USDC
-        await program.methods.depositCollateral(depositAmount)
-            .accounts({
-                underwriter: testUnderwriterKp.publicKey,
-                underwriterUsdcAccount: testUnderwriterUsdcAta,
-                underwriterLpTokenAccount: testUnderwriterLpAta, // init_if_needed will create this
-                collateralPoolUsdcAccount: collateralPoolPda,
-                lpMint: lpMintPda,
-                poolAuthority: poolAuthorityPda,
-                usdcMint: usdcMint,
-                tokenProgram: TOKEN_PROGRAM_ID,
-                systemProgram: SystemProgram.programId,
-                rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            })
-            .signers([testUnderwriterKp])
-            .rpc({ skipPreflight: true });
-        console.log("Underwriter deposited collateral.");
+// if scale_difference > 0 {
+//     let multiplier = 10u64.pow(scale_difference as u32) as i64;
+//     scaled_pyth_price = pyth_mantissa
+//         .checked_mul(multiplier)
+//         .ok_or(StableGuardError:: CalculationError) ?;
+// } else if scale_difference < 0 {
+//     let divisor = 10u64.pow((-scale_difference) as u32) as i64;
+//     require!(divisor != 0, StableGuardError:: CalculationError);
+//     scaled_pyth_price = pyth_mantissa
+//         .checked_div(divisor)
+//         .ok_or(StableGuardError:: CalculationError) ?;
+// } else {
+//     scaled_pyth_price = pyth_mantissa;
+// }
 
-        // 4. Buyer creates a policy
-        testPolicyId = new anchor.BN(Date.now()); // Use timestamp for unique ID in test
-        const insuredAmountNum = 1000;
-        const decimals = 6;
-        const insuredAmount = new anchor.BN(insuredAmountNum * Math.pow(10, decimals));
+// if scaled_pyth_price < constants:: DEPEG_THRESHOLD_PRICE as i64 {
+//     //DEPEG condition met
 
-        [testPolicyPda] = anchor.web3.PublicKey.findProgramAddressSync(
-            [Buffer.from("policy"), testBuyerKp.publicKey.toBuffer(), testPolicyId.toBuffer('le', 8)],
-            program.programId
-        );
+//     let payout_amt_to_transfer = policy.payout_amount;
 
-        await program.methods.createPolicy(insuredAmount, testPolicyId)
-            .accounts({
-                buyer: testBuyerKp.publicKey,
-                policyAccount: testPolicyPda,
-                buyerUsdcAccount: testBuyerUsdcAta,
-                collateralPoolUsdcAccount: collateralPoolPda,
-                usdcMint: usdcMint,
-                insuredStablecoinMint: usdcMint, // Insuring USDC in this test
-                tokenProgram: TOKEN_PROGRAM_ID,
-                systemProgram: SystemProgram.programId,
-                clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-                rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-            })
-            .signers([testBuyerKp])
-            .rpc({ skipPreflight: true });
-        console.log(`Policy ${testPolicyId.toString()} created at PDA ${testPolicyPda.toBase58()}`);
+//     let collateral_pool = & mut self.collateral_token_pool;
 
-        // 5. Create Mock Pyth Feed Account (Data will be set in specific tests)
-        testMockPythFeedKp = Keypair.generate();
-        testMockPythFeedAddress = await createMockPythFeed(
-            provider,
-            testMockPythFeedKp,
-            1_00000000, // Default price $1.00
-            -8 // Default expo
-            // Confidence/Timestamp set per test
-        );
-        console.log(`Mock Pyth Feed created at ${testMockPythFeedAddress.toBase58()}`);
+//     require!(
+//         collateral_pool.amount >= payout_amt_to_transfer,
+//         StableGuardError:: InsufficientPoolCollateralForPayout
+//     );
 
-    });
+//     let authority_seeds_bump = bumps.pool_authority;
+//     let authority_seeds = & [constants:: AUTHORITY_SEED, & [authority_seeds_bump]];
+//     let signer_seeds = & [& authority_seeds[..]];
+
+//     let transfer_payout_accounts = TransferChecked {
+//         from: collateral_pool.to_account_info(),
+//             mint: self.mint.to_account_info(),
+//                 to: self.buyer_token_account.to_account_info(),
+//                     authority: self.pool_authority.to_account_info(),
+//             };
+
+// let cpi_ctx = CpiContext:: new_with_signer(
+//     self.token_program.to_account_info(),
+//     transfer_payout_accounts,
+//     signer_seeds,
+//             );
+
+// transfer_checked(cpi_ctx, payout_amt_to_transfer, self.mint.decimals) ?;
+// policy.status = PolicyStatus:: ExpiredPaid;
+// Ok(())
+//         } else {
+//     //No DEPEG
+//     self.policy_account.status = PolicyStatus:: ExpiredNotPaid;
+//     Ok(())
+// }
+//     }
+// }
+
+//---------------------------------------//
+// import * as anchor from "@coral-xyz/anchor";
+// import { Program, BN } from "@coral-xyz/anchor";
+// import { StableGuard } from "../target/types/stable_guard";
+// import {
+//   TOKEN_PROGRAM_ID,
+//   getMint,
+//   getAccount,
+//   createMint as splCreateMint,
+// } from "@solana/spl-token";
+// import {
+//   Keypair,
+//   PublicKey,
+//   SystemProgram,
+//   LAMPORTS_PER_SOL,
+// } from "@solana/web3.js";
+// import { assert } from "chai";
+
+// async function airdropSol(
+//   provider: anchor.AnchorProvider,
+//   targetPublicKey: PublicKey,
+//   lamports: number = 2 * LAMPORTS_PER_SOL
+// ) {
+//   try {
+//     const signature = await provider.connection.requestAirdrop(targetPublicKey, lamports);
+//     const latestBlockHash = await provider.connection.getLatestBlockhash();
+//     await provider.connection.confirmTransaction({
+//       blockhash: latestBlockHash.blockhash,
+//       lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+//       signature: signature,
+//     }, "confirmed");
+//     return signature;
+//   } catch (error) {
+//     console.warn(`Airdrop to ${targetPublicKey.toBase58()} failed. They might already have funds or be rate-limited. Error: ${error.message}`);
+//     return "";
+//   }
+// }
+
+// const LP_MINT_SEED_BUF = Buffer.from("lp_mint");
+// const POOL_SEED_BUF = Buffer.from("collateral_pool");
+// const AUTHORITY_SEED_BUF = Buffer.from("pool_authority");
+// const TOKEN_DECIMALS = 6;
+// const PREMIUM_RATE_BPS_VAL = 50;
+// const BINARY_PAYOUT_BPS_VAL = 1000;
+// const POLICY_TERM_SECONDS = 7 * 24 * 60 * 60;
+
+// // Mainnet mints (ensure these are cloned in Anchor.toml)
+// const MAINNET_USDC_MINT_PUBKEY = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+// const MAINNET_USDT_MINT_PUBKEY = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+
+// describe("StableGuard", () => {
+//   anchor.setProvider(anchor.AnchorProvider.env());
+//   const provider = anchor.getProvider() as anchor.AnchorProvider;
+//   const connection = provider.connection;
+//   const program = anchor.workspace.StableGuard as Program<StableGuard>;
+
+//   let authoritySigner: Keypair;
+//   let testCollateralMint1Keypair: Keypair;
+//   let testCollateralMint1PublicKey: PublicKey;
+//   let poolAuthorityPda: PublicKey;
 
 
-    it("Should payout correctly when depeg condition is met at expiry", async () => {
-        console.log("Test: Payout on Depeg");
+//   before(async () => {
+//     authoritySigner = (provider.wallet as anchor.Wallet).payer;
+//     testCollateralMint1Keypair = Keypair.generate();
+//     testCollateralMint1PublicKey = await splCreateMint(
+//       provider.connection,
+//       authoritySigner,
+//       authoritySigner.publicKey,
+//       null,
+//       TOKEN_DECIMALS,
+//       testCollateralMint1Keypair
+//     );
+//     [poolAuthorityPda] = PublicKey.findProgramAddressSync(
+//       [AUTHORITY_SEED_BUF], program.programId
+//     );
+//   });
 
-        // --- Test Setup ---
-        // 1. Get Policy Details (optional, but good for reference)
-        const policyInfo = await program.account.policyAccount.fetch(testPolicyPda);
-        const expiryTimestamp = policyInfo.expiryTimestamp.toNumber();
-        const expectedPayout = policyInfo.payoutAmount; // Get pre-calculated payout
 
-        // 2. Simulate Time Passing (Fast forward clock if using local validator)
-        // This is HARD on live Devnet. On localnet, you can sometimes warp time.
-        // For now, we'll assume enough time passes OR we adjust expiry in create_policy for testing.
-        // A simpler test approach might be to create the policy with an expiry in the past.
-        // Let's assume expiry has passed for this test logic.
-        const currentTime = Math.floor(Date.now() / 1000);
-        // assert(currentTime >= expiryTimestamp, "Test setup error: Policy should be expired");
+//   it("should initialize a new collateral for a token eg.(USDC) correctly", async () => {
+//     const [lpMintPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [LP_MINT_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
+//     const [collateralTokenPoolPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [POOL_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
 
-        // 3. Set Mock Pyth Data for DEPEG scenario
-        const depegPrice = new anchor.BN(98_000_000); // $0.980 (Below $0.985 threshold), assuming 8 decimals for comparison
-        const priceExpo = -8;
-        const confidence = new anchor.BN(1000); // Low confidence value, should pass check
-        const publishTime = new anchor.BN(currentTime); // Fresh price
+//     await program.methods.initialize()
+//       .accounts({
+//         authority: authoritySigner.publicKey,
+//         lpMint: lpMintPdaForMint1,
+//         collateralTokenPool: collateralTokenPoolPdaForMint1,
+//         poolAuthority: poolAuthorityPda,
+//         mint: testCollateralMint1PublicKey,
+//         systemProgram: SystemProgram.programId,
+//         tokenProgram: TOKEN_PROGRAM_ID,
+//       })
+//       .rpc();
 
-        // ** ACTION NEEDED: Implement helper to write this data to testMockPythFeedAddress **
-        // await updateMockPythFeed(provider, testMockPythFeedKp, depegPrice, priceExpo, confidence, publishTime);
-        console.log(`Setting mock Pyth price to ${depegPrice} * 10^${priceExpo}`);
-        // !!! Skipping actual data write for now - THIS IS WHERE MOCKING IS NEEDED !!!
-        // Without writing data, the check_and_payout call below will likely fail
-        // when trying to deserialize the empty mock Pyth account.
+//     const lpMintInfo = await getMint(provider.connection, lpMintPdaForMint1);
+//     assert.strictEqual(lpMintInfo.mintAuthority.toBase58(), poolAuthorityPda.toBase58());
+//     assert.strictEqual(lpMintInfo.decimals, TOKEN_DECIMALS);
+//     assert.strictEqual(lpMintInfo.supply, BigInt(0));
 
-        // 4. Get balances before payout
-        const buyerUsdcBalanceBefore = (await getAccount(provider.connection, testBuyerUsdcAta)).amount;
-        const poolUsdcBalanceBefore = (await getAccount(provider.connection, collateralPoolPda)).amount;
+//     const collateralPoolInfo = await getAccount(provider.connection, collateralTokenPoolPdaForMint1);
+//     assert.strictEqual(collateralPoolInfo.mint.toBase58(), testCollateralMint1PublicKey.toBase58());
+//     assert.strictEqual(collateralPoolInfo.owner.toBase58(), poolAuthorityPda.toBase58());
+//     assert.strictEqual(collateralPoolInfo.amount, BigInt(0));
+//   });
 
-        // --- Execute Instruction ---
-        console.log("Calling check_and_payout...");
-        try {
-            await program.methods
-                .checkAndPayout(testPolicyId) // Pass policy ID
-                .accounts({
-                    buyer: testBuyerKp.publicKey,
-                    policyAccount: testPolicyPda,
-                    collateralPoolUsdcAccount: collateralPoolPda,
-                    poolAuthority: poolAuthorityPda,
-                    buyerUsdcAccount: testBuyerUsdcAta,
-                    usdcMint: usdcMint,
-                    pythPriceFeed: testMockPythFeedAddress, // Use the MOCK feed address
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                    clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-                })
-                .signers([testBuyerKp]) // Buyer signs to trigger check
-                .rpc({ skipPreflight: true });
-            console.log("check_and_payout called successfully.");
-        } catch (error) {
-            console.error("Error calling check_and_payout:", error);
-            // Log details if possible
-            if (error.logs) { console.error("Logs:", error.logs); }
-            // If data wasn't written to mock Pyth account, expect deserialization error here
-            assert.fail(`check_and_payout instruction failed: ${error}`);
-        }
+//   it("should fail to re-initialize for the same collateral type (Mint 1)", async () => {
+//     const [lpMintPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [LP_MINT_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
+//     const [collateralTokenPoolPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [POOL_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
 
-        // --- Assertions ---
-        console.log("Fetching accounts after check_and_payout...");
-        const policyInfoAfter = await program.account.policyAccount.fetch(testPolicyPda);
-        const buyerUsdcInfoAfter = await getAccount(provider.connection, testBuyerUsdcAta);
-        const poolUsdcInfoAfter = await getAccount(provider.connection, collateralPoolPda);
+//     try {
+//       await program.methods.initialize()
+//         .accounts({
+//           authority: authoritySigner.publicKey,
+//           lpMint: lpMintPdaForMint1,
+//           collateralTokenPool: collateralTokenPoolPdaForMint1,
+//           poolAuthority: poolAuthorityPda,
+//           mint: testCollateralMint1PublicKey,
+//           systemProgram: SystemProgram.programId,
+//           tokenProgram: TOKEN_PROGRAM_ID,
+//         })
+//         .rpc();
+//       assert.fail("Should have failed to re-initialize for the same collateral type.");
+//     } catch (error) {
+//       assert.isNotNull(error);
+//       const errorString = error.toString();
+//       assert.isTrue(
+//         errorString.includes("custom program error: 0x0") ||
+//         errorString.toLowerCase().includes("already in use") ||
+//         errorString.toLowerCase().includes("already exists")
+//       );
+//     }
+//   });
 
-        // Check policy status
-        assert.equal(Object.keys(policyInfoAfter.status)[0].toLowerCase(), 'expiredpaid', "Policy status should be ExpiredPaid");
+//   it("should successfully initialize for a collateral type/token eg.(USDT)", async () => {
+//     const testCollateralMint2Keypair = Keypair.generate();
+//     const testCollateralMint2PublicKey = await splCreateMint(
+//       provider.connection,
+//       authoritySigner,
+//       authoritySigner.publicKey,
+//       null,
+//       TOKEN_DECIMALS,
+//       testCollateralMint2Keypair
+//     );
 
-        // Check balances
-        const expectedBuyerBalanceAfter = buyerUsdcBalanceBefore + BigInt(expectedPayout.toString());
-        const expectedPoolBalanceAfter = poolUsdcBalanceBefore - BigInt(expectedPayout.toString());
+//     const [lpMintPdaForMint2] = PublicKey.findProgramAddressSync(
+//       [LP_MINT_SEED_BUF, testCollateralMint2PublicKey.toBuffer()], program.programId
+//     );
+//     const [collateralTokenPoolPdaForMint2] = PublicKey.findProgramAddressSync(
+//       [POOL_SEED_BUF, testCollateralMint2PublicKey.toBuffer()], program.programId
+//     );
 
-        assert.strictEqual(buyerUsdcInfoAfter.amount, expectedBuyerBalanceAfter, "Buyer USDC balance incorrect after payout");
-        assert.strictEqual(poolUsdcInfoAfter.amount, expectedPoolBalanceAfter, "Pool USDC balance incorrect after payout");
+//     await program.methods.initialize()
+//       .accounts({
+//         authority: authoritySigner.publicKey,
+//         lpMint: lpMintPdaForMint2,
+//         collateralTokenPool: collateralTokenPoolPdaForMint2,
+//         poolAuthority: poolAuthorityPda,
+//         mint: testCollateralMint2PublicKey,
+//         systemProgram: SystemProgram.programId,
+//         tokenProgram: TOKEN_PROGRAM_ID,
+//       })
+//       .rpc();
 
-        console.log("Payout on Depeg test passed!");
-    });
+//     const newLpMintInfo = await getMint(provider.connection, lpMintPdaForMint2);
+//     assert.strictEqual(newLpMintInfo.mintAuthority.toBase58(), poolAuthorityPda.toBase58());
+//     assert.strictEqual(newLpMintInfo.decimals, TOKEN_DECIMALS);
+//     assert.strictEqual(newLpMintInfo.supply, BigInt(0));
 
-    it("Should not payout when depeg condition is NOT met at expiry", async () => {
-        console.log("Test: No Payout on No Depeg");
+//     const newCollateralPoolInfo = await getAccount(provider.connection, collateralTokenPoolPdaForMint2);
+//     assert.strictEqual(newCollateralPoolInfo.mint.toBase58(), testCollateralMint2PublicKey.toBase58());
+//     assert.strictEqual(newCollateralPoolInfo.owner.toBase58(), poolAuthorityPda.toBase58());
+//     assert.strictEqual(newCollateralPoolInfo.amount, BigInt(0));
 
-        // --- Test Setup ---
-        // Assumes policy, ATAs etc exist from beforeEach or previous setup
+//     const [lpMintPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [LP_MINT_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
+//     const [collateralTokenPoolPdaForMint1] = PublicKey.findProgramAddressSync(
+//       [POOL_SEED_BUF, testCollateralMint1PublicKey.toBuffer()], program.programId
+//     );
 
-        // 1. Simulate Time Passing (Assume policy is expired)
-        const currentTime = Math.floor(Date.now() / 1000);
-
-        // 2. Set Mock Pyth Data for NO DEPEG scenario
-        const stablePrice = new anchor.BN(99_800_000); // $0.998 (Above $0.985 threshold)
-        const priceExpo = -8;
-        const confidence = new anchor.BN(1000);
-        const publishTime = new anchor.BN(currentTime);
-
-        // ** ACTION NEEDED: Implement helper to write this data to testMockPythFeedAddress **
-        // await updateMockPythFeed(provider, testMockPythFeedKp, stablePrice, priceExpo, confidence, publishTime);
-        console.log(`Setting mock Pyth price to ${stablePrice} * 10^${priceExpo}`);
-        // !!! Skipping actual data write for now - THIS IS WHERE MOCKING IS NEEDED !!!
-
-        // 3. Get balances before check
-        const buyerUsdcBalanceBefore = (await getAccount(provider.connection, testBuyerUsdcAta)).amount;
-        const poolUsdcBalanceBefore = (await getAccount(provider.connection, collateralPoolPda)).amount;
-
-        // --- Execute Instruction ---
-        console.log("Calling check_and_payout...");
-        try {
-            await program.methods
-                .checkAndPayout(testPolicyId) // Pass policy ID
-                .accounts({
-                    buyer: testBuyerKp.publicKey,
-                    policyAccount: testPolicyPda,
-                    collateralPoolUsdcAccount: collateralPoolPda,
-                    poolAuthority: poolAuthorityPda,
-                    buyerUsdcAccount: testBuyerUsdcAta,
-                    usdcMint: usdcMint,
-                    pythPriceFeed: testMockPythFeedAddress, // Use the MOCK feed address
-                    tokenProgram: TOKEN_PROGRAM_ID,
-                    clock: anchor.web3.SYSVAR_CLOCK_PUBKEY,
-                })
-                .signers([testBuyerKp])
-                .rpc({ skipPreflight: true });
-            console.log("check_and_payout called successfully.");
-        } catch (error) {
-            console.error("Error calling check_and_payout:", error);
-            if (error.logs) { console.error("Logs:", error.logs); }
-            assert.fail(`check_and_payout instruction failed: ${error}`);
-        }
-
-        // --- Assertions ---
-        console.log("Fetching accounts after check_and_payout...");
-        const policyInfoAfter = await program.account.policyAccount.fetch(testPolicyPda);
-        const buyerUsdcInfoAfter = await getAccount(provider.connection, testBuyerUsdcAta);
-        const poolUsdcInfoAfter = await getAccount(provider.connection, collateralPoolPda);
-
-        // Check policy status
-        assert.equal(Object.keys(policyInfoAfter.status)[0].toLowerCase(), 'expirednotpaid', "Policy status should be ExpiredNotPaid");
-
-        // Check balances (should be unchanged)
-        assert.strictEqual(buyerUsdcInfoAfter.amount, buyerUsdcBalanceBefore, "Buyer USDC balance should not change");
-        assert.strictEqual(poolUsdcInfoAfter.amount, poolUsdcBalanceBefore, "Pool USDC balance should not change");
-
-        console.log("No Payout on No Depeg test passed!");
-    })
-});
+//     assert.notEqual(lpMintPdaForMint1.toBase58(), lpMintPdaForMint2.toBase58());
+//     assert.notEqual(collateralTokenPoolPdaForMint1.toBase58(), collateralTokenPoolPdaForMint2.toBase58());
+//   });
+// });
