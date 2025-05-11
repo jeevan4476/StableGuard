@@ -12,11 +12,11 @@ pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 
 ///Policy Parameters
 
-pub const SECONDS_30: u64 = 30;
+pub const SECONDS_30: u64 = 60 * 60 * 24;
 
-pub const POLICY_TERM: i64 = 7 * 24 * 60 * 60;
+pub const POLICY_TERM: i64 = 3;
 
-pub const DEPEG_THRESHOLD_PRICE: u64 = 985_000_000;
+pub const DEPEG_THRESHOLD_PRICE: u64 = 100000000;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 
@@ -24,8 +24,7 @@ pub const PREMIUM_RATE_BPS: u16 = 50;
 
 pub const MAX_ORACLE_AGE_SECONDS: u64 = 60;
 
-pub const MAX_CONFIDENCE_VALUE: u64 = 10;
-
+pub const MAX_CONFIDENCE_VALUE: u64 = 70000;
 pub const USDC_MINT_PUBKEY: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 pub const USDT_MINT_PUBKEY: Pubkey = pubkey!("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");

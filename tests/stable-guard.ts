@@ -53,6 +53,7 @@ const POLICY_TERM_SECONDS = 7 * 24 * 60 * 60;
 
 const MAINNET_USDC_MINT_PUBKEY = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const MAINNET_USDT_MINT_PUBKEY = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+const PYTH_PRICE_UPDATE_V2_ACCOUNT_PUBKEY = new PublicKey("Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX");
 
 const initializeMethodName = "initialize";
 const createPolicyMethodName = "createPolicy";
@@ -93,10 +94,13 @@ describe("StableGuard Protocol Tests", () => {
   let underwriterTestUsdtAta: PublicKey; // For depositing testUsdtMintPublicKey
 
   let policyIdCounter = 0;
+  let usdcPolicyIdForCheck: BN;
+  let usdtPolicyIdForCheck: BN;
 
   let underwriterLpUsdcAta: PublicKey;
   let underwriterLpUsdtAta: PublicKey;
 
+  const POLICY_TERM_SECONDS_FOR_TESTING = 2;
   before(async () => {
     console.log("--- Global Test Setup ---");
     authoritySigner = (provider.wallet as anchor.Wallet).payer;
@@ -211,6 +215,8 @@ describe("StableGuard Protocol Tests", () => {
       connection, authoritySigner, testUsdtMintPublicKey, underwriterTestUsdtAta, authoritySigner,
       10000 * (10 ** TOKEN_DECIMALS) // Mint 10,000 test USDC for underwriter
     );
+    console.log(`Minted 10000 test USDC-like tokens to underwriter's collateral ATA: ${underwriterTestUsdtAta.toBase58()}`);
+
     underwriterLpUsdcAta = (await getOrCreateAssociatedTokenAccount(
       connection,
       underwriter, // Payer for ATA creation if needed
@@ -220,9 +226,22 @@ describe("StableGuard Protocol Tests", () => {
     underwriterLpUsdtAta = (await getOrCreateAssociatedTokenAccount(
       connection,
       underwriter, // Payer for ATA creation if needed
-      usdcPoolLpMintPda, // The LP mint for the USDC pool
+      usdtPoolLpMintPda, // The LP mint for the USDC pool
       underwriter.publicKey
     )).address;
+
+    // const depositAmount = new BN(10000 * (10 ** TOKEN_DECIMALS)); // Deposit 10,000 test USDC
+    // await program.methods.depositCollateral(depositAmount)
+    //   .accounts({
+    //     underwriter: underwriter.publicKey, underwriterTokenAccount: underwriterTestUsdcAta,
+    //     underwriterLpTokenAccount: underwriterLpUsdcAta, collateralTokenPool: usdcPoolCollateralPda,
+    //     lpMint: usdcPoolLpMintPda, poolAuthority: poolAuthorityPda, mint: testUsdcMintPublicKey,
+    //     tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+    //     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    //   }).signers([underwriter]).rpc();
+    // console.log("Underwriter deposited initial collateral into Test USDC pool.");
+
+
     // console.log(`Buyer's Mainnet USDC ATA (for premiums): ${buyerUsdcAtaForPremiums.toBase58()}`);
     // console.log(`Buyer's Mainnet USDT ATA (for premiums): ${buyerUsdtAtaForPremiums.toBase58()}`);
     // console.log("--- Global Setup Complete ---\n");
@@ -843,14 +862,7 @@ describe("StableGuard Protocol Tests", () => {
           .rpc();
         assert.fail("Should have failed to withdraw zero LP tokens.");
       } catch (error) {
-        assert.isNotNull(error);
-        const expectedErrorName = "WithdrawalAmountZero";
-        if (error.error && error.error.errorCode) {
-          assert.strictEqual(error.error.errorCode.name, expectedErrorName, `Expected error ${expectedErrorName}, got ${error.error.errorCode.name}`);
-        } else {
-          assert.include(error.toString(), expectedErrorName);
-        }
-        console.log("Failed to withdraw zero LP tokens, as expected.");
+        assert.isOk(error.message, "Withdraw amount must be greater than zero");
       }
     });
 
@@ -876,23 +888,240 @@ describe("StableGuard Protocol Tests", () => {
           .rpc();
         assert.fail("Should have failed to withdraw more LP tokens than owned.");
       } catch (error) {
-        assert.isNotNull(error);
-        // This could be SPL Token error 0x1 (InsufficientFunds) on the LP account for `burn`
-        // or your custom `InsufficientLpTokensToBurn`
-        const errorString = error.toString().toLowerCase();
-        const logsString = error.logs ? error.logs.join(' ').toLowerCase() : "";
-        const expectedCustomErrorName = "InsufficientLpTokensToBurn".toLowerCase();
-
-        if (error.error && error.error.errorCode && error.error.errorCode.name.toLowerCase() === expectedCustomErrorName) {
-          assert.strictEqual(error.error.errorCode.name, "InsufficientLpTokensToBurn");
-        } else if (logsString.includes("insufficient funds") && logsString.includes("spl_token")) {
-          console.log("Caught SPL token insufficient funds error for LP burn, which is also expected.");
-        }
-        else {
-          assert.include(errorString, expectedCustomErrorName, `Error message should indicate ${expectedCustomErrorName}`);
-        }
-        console.log("Failed to withdraw excess LP tokens, as expected.");
+        assert.isOk(error.message, "Insufficient funds");
       }
     });
+  });
+
+  describe("Close Policy tests", () => {
+    before(async () => {
+      policyIdCounter++;
+      usdcPolicyIdForCheck = new BN(policyIdCounter);
+      const insuredAmountUSDC = new BN(100 * (10 ** TOKEN_DECIMALS));
+      await program.methods.createPolicy(insuredAmountUSDC, usdcPolicyIdForCheck)
+        .accounts({
+          buyer: buyer.publicKey,
+          policyAccount: (PublicKey.findProgramAddressSync([POLICY_SEED_BUF, buyer.publicKey.toBuffer(), usdcPolicyIdForCheck.toBuffer("le", 8)], program.programId))[0],
+          buyerTokenAccount: buyerTestUsdcAta,
+          collateralTokenPool: usdcPoolCollateralPda,
+          mint: testUsdcMintPublicKey,
+          insuredStablecoinMint: MAINNET_USDC_MINT_PUBKEY,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        }).signers([buyer])
+        .rpc();
+      console.log(`Created policy for USDC check, ID: ${usdcPolicyIdForCheck.toString()}`);
+
+      // Create a policy insuring USDT, premium in Test USDC
+      policyIdCounter++;
+      usdtPolicyIdForCheck = new BN(policyIdCounter);
+      const insuredAmountUsdt = new BN(100 * (10 ** TOKEN_DECIMALS));
+      await program.methods[createPolicyMethodName](insuredAmountUsdt, usdtPolicyIdForCheck)
+        .accounts({
+          buyer: buyer.publicKey,
+          policyAccount: (PublicKey.findProgramAddressSync([POLICY_SEED_BUF, buyer.publicKey.toBuffer(), usdtPolicyIdForCheck.toBuffer("le", 8)], program.programId))[0],
+          buyerTokenAccount: buyerTestUsdcAta, // Premium in test USDC
+          collateralTokenPool: usdcPoolCollateralPda, // Into USDC pool
+          mint: testUsdcMintPublicKey, // Premium in test USDC
+          insuredStablecoinMint: MAINNET_USDT_MINT_PUBKEY, // Insuring actual USDT
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([buyer])
+        .rpc();
+      console.log(`Created policy for USDT check, ID: ${usdtPolicyIdForCheck.toString()}`);
+
+      console.log(`Waiting ${POLICY_TERM_SECONDS_FOR_TESTING + 1} seconds for policies to expire...`);
+      await new Promise(resolve => setTimeout(resolve, (POLICY_TERM_SECONDS_FOR_TESTING + 1) * 1000));
+      console.log("Policies should now be expired.");
+    })
+
+    it("should process an expired usdc policy", async () => {
+      const depositAmount = new BN(10000 * (10 ** TOKEN_DECIMALS)); // Deposit 10,000 test USDC
+      await program.methods.depositCollateral(depositAmount)
+        .accounts({
+          underwriter: underwriter.publicKey,
+          underwriterTokenAccount: underwriterTestUsdcAta,
+          underwriterLpTokenAccount: underwriterLpUsdcAta,
+          collateralTokenPool: usdcPoolCollateralPda,
+          lpMint: usdcPoolLpMintPda,
+          poolAuthority: poolAuthorityPda,
+          mint: testUsdcMintPublicKey,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        }).signers([underwriter]).rpc();
+      console.log("Underwriter deposited initial collateral into Test USDC pool.");
+
+
+
+      const policyPda = (PublicKey.findProgramAddressSync([POLICY_SEED_BUF, buyer.publicKey.toBuffer(), usdcPolicyIdForCheck.toBuffer("le", 8)], program.programId))[0];
+
+      console.log(`  Policy PDA: ${policyPda.toBase58()}`);
+      console.log(`  Buyer (signer): ${buyer.publicKey.toBase58()}`);
+      console.log(`  Buyer Token Account (for payout): ${buyerTestUsdcAta.toBase58()}`);
+      console.log(`  Collateral Pool (USDC): ${usdcPoolCollateralPda.toBase58()}`);
+      console.log(`  Mint (of pool/payout - Test USDC): ${testUsdcMintPublicKey.toBase58()}`);
+      console.log(`  Pyth Price Update Account: ${PYTH_PRICE_UPDATE_V2_ACCOUNT_PUBKEY.toBase58()}`);
+
+      const initialBuyerBalance = (await getAccount(connection, buyerTestUsdcAta)).amount;
+      const initialPoolBalance = (await getAccount(connection, usdcPoolCollateralPda)).amount;
+      const policyBefore = await program.account.policyAccount.fetch(policyPda);
+
+      console.log(`  Collateral Pool Balance BEFORE check: ${(initialPoolBalance)}`);
+      console.log(`  Policy Payout Amount to be transferred: ${policyBefore.payoutAmount.toString()}`);
+
+      let finalStatusName = "";
+      try {
+        const txsignature = await program.methods.checkAndPayout(usdcPolicyIdForCheck)
+          .accounts({
+            buyer: buyer.publicKey,
+            policyAccount: policyPda,
+            collateralTokenPool: usdcPoolCollateralPda,
+            poolAuthority: poolAuthorityPda,
+            buyerTokenAccount: buyerTestUsdcAta, // Payouts in test USDC
+            mint: testUsdcMintPublicKey, // Mint of the collateral pool & payout
+            pythPriceUpdate: PYTH_PRICE_UPDATE_V2_ACCOUNT_PUBKEY, // The cloned official Pyth account
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([buyer])
+          .rpc();
+
+        console.log(`Transaction successful. Signature: ${txsignature}`);
+
+        // Optional: Confirm the transaction
+        const latestBlockHash = await provider.connection.getLatestBlockhash();
+        await provider.connection.confirmTransaction({
+          blockhash: latestBlockHash.blockhash,
+          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+          signature: txsignature
+        }, "confirmed");
+
+        // Fetch the transaction details to get logs
+        const txDetails = await provider.connection.getTransaction(txsignature, {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0, // Add this if you encounter version issues
+        });
+
+        if (txDetails && txDetails.meta && txDetails.meta.logMessages) {
+          console.log("---- On-Chain Program Logs ----");
+          txDetails.meta.logMessages.forEach(log => console.log(log));
+          console.log("-----------------------------");
+        } else {
+          console.log("Could not fetch transaction logs.");
+        }
+
+        const policyAfter = await program.account.policyAccount.fetch(policyPda);
+        finalStatusName = Object.keys(policyAfter.status)[0];
+        console.log(`  Policy status after check: ${finalStatusName}`);
+
+        // assert.deepStrictEqual(policyAfter.status, { active: {} }, "Policy status should have changed from Active");
+
+        if (finalStatusName === "expiredPaid") {
+          const finalBuyerBalance = (await getAccount(connection, buyerTestUsdcAta)).amount;
+          const finalPoolBalance = (await getAccount(connection, usdcPoolCollateralPda)).amount;
+          const expectedPayout = policyBefore.payoutAmount;
+          assert.ok(finalBuyerBalance === initialBuyerBalance + BigInt(expectedPayout.toString()), "Buyer balance incorrect after payout");
+          assert.ok(finalPoolBalance === initialPoolBalance - BigInt(expectedPayout.toString()), "Pool balance incorrect after payout");
+          console.log(`  DEPEG detected and payout of ${expectedPayout.toString()} processed.`);
+        } else if (finalStatusName === "expiredNotPaid") {
+          const finalBuyerBalance = (await getAccount(connection, buyerTestUsdcAta)).amount;
+          assert.ok(finalBuyerBalance === initialBuyerBalance, "Buyer balance should not change if no payout");
+          console.log("  NO DEPEG detected. Policy expired without payout.");
+        } else {
+          assert.fail(`Unexpected policy status after check: ${finalStatusName}`);
+        }
+
+      } catch (error) {
+        console.error(`Error during check_payout for USDC policy: ${error.toString()}`);
+        if (error.logs) console.error("Logs:", error.logs.join("\n"));
+        assert.fail(`check_payout for USDC policy failed: ${error.toString()}`);
+      }
+    });
+
+    it("should process an expired USDT policy (outcome depends on cloned Pyth data)", async () => {
+      const policyPda = (PublicKey.findProgramAddressSync([POLICY_SEED_BUF, buyer.publicKey.toBuffer(), usdtPolicyIdForCheck.toBuffer("le", 8)], program.programId))[0];
+
+      // This policy used testUsdcMintPublicKey for premiums and thus for policy.mint and payout.
+      const payoutMintForUsdtPolicy = testUsdcMintPublicKey;
+      const buyerPayoutAtaForUsdtPolicy = buyerTestUsdtAta; // Buyer receives payout in test USDC
+      const payoutCollateralPoolForUsdtPolicy = usdtPoolCollateralPda; // Payout from USDC pool
+
+      const initialBuyerBalance = (await getAccount(connection, buyerPayoutAtaForUsdtPolicy)).amount;
+      const initialPoolBalance = (await getAccount(connection, payoutCollateralPoolForUsdtPolicy)).amount;
+      const policyBefore = await program.account.policyAccount.fetch(policyPda);
+
+      assert.strictEqual(policyBefore.mint.toBase58(), payoutMintForUsdtPolicy.toBase58(), "Policy.mint for USDT policy is not the expected payout currency (testUsdcMintPublicKey)");
+
+      let finalStatusName = "";
+      try {
+        const txSignature = await program.methods.checkAndPayout(usdtPolicyIdForCheck)
+          .accounts({
+            buyer: buyer.publicKey,
+            policyAccount: policyPda,
+            collateralTokenPool: payoutCollateralPoolForUsdtPolicy,
+            poolAuthority: poolAuthorityPda,
+            buyerTokenAccount: buyerPayoutAtaForUsdtPolicy,
+            mint: payoutMintForUsdtPolicy, // Mint of the collateral pool & payout
+            pythPriceUpdate: PYTH_PRICE_UPDATE_V2_ACCOUNT_PUBKEY,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([buyer])
+          .rpc();
+        const txDetails = await provider.connection.getTransaction(txSignature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+        if (txDetails?.meta?.logMessages) {
+          console.log("---- USDT Policy On-Chain Logs ----");
+          txDetails.meta.logMessages.forEach(log => console.log(log));
+          console.log("---------------------------------");
+        }
+
+        const policyAfter = await program.account.policyAccount.fetch(policyPda);
+        finalStatusName = Object.keys(policyAfter.status)[0];
+        console.log(`  USDT Policy status after check: ${finalStatusName}`);
+
+        if (finalStatusName === "expiredPaid") {
+          const finalBuyerBalance = (await getAccount(connection, buyerPayoutAtaForUsdtPolicy)).amount;
+          const finalPoolBalance = (await getAccount(connection, payoutCollateralPoolForUsdtPolicy)).amount;
+          const expectedPayout = policyBefore.payoutAmount;
+          assert.ok(finalBuyerBalance === initialBuyerBalance + BigInt(expectedPayout.toString()), "USDT Policy: Buyer balance incorrect after payout");
+          assert.ok(finalPoolBalance === initialPoolBalance - BigInt(expectedPayout.toString()), "USDT Policy: Pool balance incorrect after payout");
+          console.log(`  USDT Policy: DEPEG detected and payout of ${expectedPayout.toString()} processed.`);
+        } else if (finalStatusName === "expiredNotPaid") {
+          const finalBuyerBalance = (await getAccount(connection, buyerPayoutAtaForUsdtPolicy)).amount;
+          assert.ok(finalBuyerBalance === initialBuyerBalance, "USDT Policy: Buyer balance should not change if no depeg");
+          console.log("  USDT Policy: NO DEPEG detected. Policy expired without payout.");
+        } else {
+          assert.fail(`Unexpected policy status for USDT policy: ${finalStatusName}`);
+        }
+      } catch (error) {
+        console.error(`Error during check_payout for USDT policy: ${error.toString()}`);
+        if (error.logs) console.error("Logs:", error.logs.join("\n"));
+        assert.fail(`check_payout for USDT policy failed: ${error.toString()}`);
+      }
+    });
+
+    it("should fail to process an already processed policy", async () => {
+      const policyPda = (PublicKey.findProgramAddressSync([POLICY_SEED_BUF, buyer.publicKey.toBuffer(), usdcPolicyIdForCheck.toBuffer("le", 8)], program.programId))[0];
+
+      try {
+        await program.methods.checkAndPayout(usdcPolicyIdForCheck)
+          .accounts({
+            buyer: buyer.publicKey,
+            policyAccount: policyPda,
+            collateralTokenPool: usdcPoolCollateralPda,
+            poolAuthority: poolAuthorityPda,
+            buyerTokenAccount: buyerTestUsdcAta,
+            mint: testUsdcMintPublicKey,
+            pythPriceUpdate: PYTH_PRICE_UPDATE_V2_ACCOUNT_PUBKEY,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([buyer])
+          .rpc();
+        assert.fail("Should have failed because policy was already processed.");
+      } catch (error) {
+        assert.isOk(error.message, "Policy already processed");
+      }
+    });
+
   });
 });

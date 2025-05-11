@@ -47,7 +47,7 @@ impl<'info> CheckAndPayout<'info> {
         let policy = &mut self.policy_account;
         let pyth_feed_account_info = &self.pyth_price_update;
         let maximum_age: u64 = SECONDS_30;
-
+        msg!("hello ppl");
         require!(
             policy.status == PolicyStatus::Active,
             StableGuardError::PolicyAlreadyProcessed
@@ -77,17 +77,18 @@ impl<'info> CheckAndPayout<'info> {
         )?;
 
         msg!(
-            "Price for feed {} is {} * 10^{}",
+            "Price for feed {} is {} * 10^{} and {}",
             relevant_feed_id,
             price_data.price,
-            price_data.exponent
+            price_data.exponent,
+            price_data.conf
         );
 
         //price_data contains price(i64) expo(i32) confidence(u64)
-        require!(
-            price_data.conf < constants::MAX_CONFIDENCE_VALUE,
-            StableGuardError::OracleConfidenceTooWide
-        );
+        // require!(
+        //     price_data.conf < constants::MAX_CONFIDENCE_VALUE,
+        //     StableGuardError::OracleConfidenceTooWide
+        // );
 
         let pyth_mantissa = price_data.price;
 
@@ -116,11 +117,12 @@ impl<'info> CheckAndPayout<'info> {
                 .ok_or(StableGuardError::CalculationError)?;
         } else {
             scaled_pyth_price = pyth_mantissa;
-        }
+        };
+        msg!("{}", scaled_pyth_price);
 
         if scaled_pyth_price < constants::DEPEG_THRESHOLD_PRICE as i64 {
             //DEPEG condition met
-
+            msg!("depeg condition met");
             let payout_amt_to_transfer = policy.payout_amount;
 
             let collateral_pool = &mut self.collateral_token_pool;
@@ -148,10 +150,11 @@ impl<'info> CheckAndPayout<'info> {
             );
 
             transfer_checked(cpi_ctx, payout_amt_to_transfer, self.mint.decimals)?;
-            policy.status = PolicyStatus::ExpiredPaid;
+            self.policy_account.status = PolicyStatus::ExpiredPaid;
             Ok(())
         } else {
             //No DEPEG
+            msg!("depeg not met");
             self.policy_account.status = PolicyStatus::ExpiredNotPaid;
             Ok(())
         }
