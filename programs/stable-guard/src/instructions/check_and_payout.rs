@@ -47,7 +47,6 @@ impl<'info> CheckAndPayout<'info> {
         let policy = &mut self.policy_account;
         let pyth_feed_account_info = &self.pyth_price_update;
         let maximum_age: u64 = SECONDS_30;
-        msg!("hello ppl");
         require!(
             policy.status == PolicyStatus::Active,
             StableGuardError::PolicyAlreadyProcessed
@@ -59,12 +58,8 @@ impl<'info> CheckAndPayout<'info> {
 
         // let current_pyth_time = Clock::get()?.unix_timestamp;
         let relevant_feed_id: &str = match policy.insured_stablecoin_mint {
-            key if key == constants::USDC_MINT_PUBKEY => {
-                "0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a"
-            }
-            key if key == constants::USDT_MINT_PUBKEY => {
-                "0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b"
-            }
+            key if key == constants::USDC_MINT_PUBKEY => constants::PYTH_USDC_USD_FEED_ID,
+            key if key == constants::USDT_MINT_PUBKEY => constants::PYTH_USDT_USD_FEED_ID,
             _ => return err!(StableGuardError::InvalidStablecoinMint),
         };
 
@@ -105,12 +100,14 @@ impl<'info> CheckAndPayout<'info> {
         let scale_difference = pyth_exponent - (-TARGET_DECIMALS);
 
         if scale_difference > 0 {
-            let multiplier = 10u64.pow(scale_difference as u32) as i64;
+            let scale_difference_u32 = u32::try_from(scale_difference)?;
+            let multiplier = i64::try_from(10u64.pow(scale_difference_u32))?;
             scaled_pyth_price = pyth_mantissa
                 .checked_mul(multiplier)
                 .ok_or(StableGuardError::CalculationError)?;
         } else if scale_difference < 0 {
-            let divisor = 10u64.pow((-scale_difference) as u32) as i64;
+            let scale_difference_u32 = u32::try_from(-scale_difference)?;
+            let divisor = i64::try_from(10u64.pow(scale_difference_u32))?;
             require!(divisor != 0, StableGuardError::CalculationError);
             scaled_pyth_price = pyth_mantissa
                 .checked_div(divisor)
@@ -118,11 +115,10 @@ impl<'info> CheckAndPayout<'info> {
         } else {
             scaled_pyth_price = pyth_mantissa;
         };
-        msg!("{}", scaled_pyth_price);
+        // msg!("{}", scaled_pyth_price);
 
         if scaled_pyth_price < constants::DEPEG_THRESHOLD_PRICE as i64 {
             //DEPEG condition met
-            msg!("depeg condition met");
             let payout_amt_to_transfer = policy.payout_amount;
 
             let collateral_pool = &mut self.collateral_token_pool;
@@ -154,7 +150,6 @@ impl<'info> CheckAndPayout<'info> {
             Ok(())
         } else {
             //No DEPEG
-            msg!("depeg not met");
             self.policy_account.status = PolicyStatus::ExpiredNotPaid;
             Ok(())
         }

@@ -36,7 +36,7 @@ pub struct CreatePolicy<'info> {
     pub collateral_token_pool: Account<'info, TokenAccount>,
 
     #[account(
-        // constraint =  mint.key() == USDC_MINT_PUBKEY  || mint.key() == USDT_MINT_PUBKEY
+        constraint =  mint.key() == USDC_MINT_PUBKEY  || mint.key() == USDT_MINT_PUBKEY //comment while testing
     )]
     pub mint: Account<'info, Mint>,
 

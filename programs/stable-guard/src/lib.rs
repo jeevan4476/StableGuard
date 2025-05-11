@@ -10,7 +10,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("ByZpAk5xNzoJHAkmxwmXCHhGR1uSuPX1fgQ1mFBfye4w");
+declare_id!("GdxAqJbfzhPCvtthZ563jyd4JVbAz58FoY5bRWCb5H8k");
 
 #[program]
 pub mod stable_guard {
