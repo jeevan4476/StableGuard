@@ -17,7 +17,3 @@ pub struct PolicyAccount {
     pub bump: u8,
     pub mint: Pubkey,
 }
-
-// impl PolicyAccount {
-//     pub const LEN: usize = (32 * 2) + (8 * 6) + (1 * 1) + (1 * 1) + 8;
-// }

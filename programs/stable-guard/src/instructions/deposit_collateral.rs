@@ -8,12 +8,6 @@ use anchor_spl::{
 
 #[derive(Accounts)]
 pub struct DepositCollateral<'info> {
-    // #[account(
-    //     seeds=[constants::POLICY_SEED,policy_account.buyer.key().as_ref(),policy_account.policy_id.to_le_bytes().as_ref()],
-    //     bump=policy_account.bump,
-    //     has_one=mint
-    // )]
-    // pub policy_account: Account<'info, PolicyAccount>,
     #[account(mut)]
     pub underwriter: Signer<'info>,
     #[account(

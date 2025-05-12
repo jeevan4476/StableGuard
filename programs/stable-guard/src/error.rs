@@ -53,13 +53,13 @@ pub enum StableGuardError {
     #[msg("No Lp tokens to burn")]
     NolpTokensToBurn,
 
-    #[msg("custom")]
+    #[msg("Insufficient Lp tokens to burn")]
     InsufficientLpTokensToBurn,
 
-    #[msg("custom")]
+    #[msg("Oracle exponent is unexpected")]
     OracleExponentUnexpected,
 
-    #[msg("custom")]
+    #[msg("Withdrawal results in zero USDC")]
     WithdrawalResultsInZeroUsdc,
 
     #[msg("Unsupported Stablecoin")]
