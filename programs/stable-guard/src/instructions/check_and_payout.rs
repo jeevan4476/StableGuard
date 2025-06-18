@@ -1,5 +1,5 @@
 pub use crate::constants;
-use crate::{error::StableGuardError, PolicyAccount, PolicyStatus, SECONDS_30};
+use crate::{error::StableGuardError, InsurancePool, PolicyAccount, PolicyStatus, SECONDS_30};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
@@ -16,6 +16,13 @@ pub struct CheckAndPayout<'info> {
         has_one = buyer
     )]
     pub policy_account: Account<'info, PolicyAccount>,
+    #[account(
+        mut,
+        seeds = [constants::INSURANCE_POOL_SEED,mint.key().as_ref()],
+        bump,
+        constraint = insurance_pool.collateral_mint == mint.key(),
+    )]
+    pub insurance_pool: Account<'info, InsurancePool>,
     #[account(
         mut,
         seeds = [constants::POOL_SEED,mint.key().as_ref()],
@@ -47,6 +54,7 @@ impl<'info> CheckAndPayout<'info> {
         let policy = &mut self.policy_account;
         let pyth_feed_account_info = &self.pyth_price_update;
         let maximum_age: u64 = SECONDS_30;
+        // Require the policy to be active and expired
         require!(
             policy.status == PolicyStatus::Active,
             StableGuardError::PolicyAlreadyProcessed
@@ -85,6 +93,7 @@ impl<'info> CheckAndPayout<'info> {
         //     StableGuardError::OracleConfidenceTooWide
         // );
 
+        // --- Price Scaling Logic ---
         let pyth_mantissa = price_data.price;
 
         let pyth_exponent = price_data.exponent;
@@ -92,12 +101,11 @@ impl<'info> CheckAndPayout<'info> {
         const TARGET_DECIMALS: i32 = 8;
         // If pyth_exponent is -8 and TARGET_DECIMALS is 8, we need to multiply by 10^(8-8) = 10^0 = 1.
 
-        let scaled_pyth_price: i64;
-
         if pyth_exponent > 0 {
             return err!(StableGuardError::OracleExponentUnexpected);
         }
         let scale_difference = pyth_exponent - (-TARGET_DECIMALS);
+        let scaled_pyth_price: i64;
 
         if scale_difference > 0 {
             let scale_difference_u32 = u32::try_from(scale_difference)?;
@@ -147,11 +155,17 @@ impl<'info> CheckAndPayout<'info> {
 
             transfer_checked(cpi_ctx, payout_amt_to_transfer, self.mint.decimals)?;
             self.policy_account.status = PolicyStatus::ExpiredPaid;
-            Ok(())
         } else {
             //No DEPEG
             self.policy_account.status = PolicyStatus::ExpiredNotPaid;
-            Ok(())
         }
+        let insured_amount_to_reduce = self.policy_account.insured_amount;
+        self.insurance_pool.total_insured_value = self
+            .insurance_pool
+            .total_insured_value
+            .checked_sub(insured_amount_to_reduce)
+            .ok_or(StableGuardError::CalculationError)?;
+
+        Ok(())
     }
 }

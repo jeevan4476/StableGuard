@@ -6,30 +6,37 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-stable_guard = "GdxAqJbfzhPCvtthZ563jyd4JVbAz58FoY5bRWCb5H8k"
+stable_guard = "7Nyo8GmYxFC3YoqTUysTyM6p9vaTGrsh8dDDqbFLkVc2"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "devnet"
-wallet="turbin3wallet.json"
-#wallet = "~/.config/solana/id.json"
+wallet = "turbin3wallet.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
+[test]
+startup_wait = 5000
+shutdown_wait = 2000
+upgradeable = false
+
 [test.validator]
+bind_address = "0.0.0.0"
 url = "https://api.mainnet-beta.solana.com"
+ledger = ".anchor/test-ledger"
+rpc_port = 8899
 
 [[test.validator.clone]]
-address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" # USDC Mint
+address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 [[test.validator.clone]]
-address = "Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX" #pyth mainnet
+address = "Dpw1EAVrSB1ibxiDQyTAW6Zip3J4Btk2x4SgApQCeFbX"
 
 [[test.validator.clone]]
-address = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" # USDT Mint
+address = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
 [[test.validator.clone]]
-address = "HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM" 
+address = "HT2PLQBcG5EiCcNSaMHAjSgd9F98ecpATbk4Sk5oYuM"

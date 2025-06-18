@@ -10,22 +10,28 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("GdxAqJbfzhPCvtthZ563jyd4JVbAz58FoY5bRWCb5H8k");
+declare_id!("7Nyo8GmYxFC3YoqTUysTyM6p9vaTGrsh8dDDqbFLkVc2");
 
 #[program]
 pub mod stable_guard {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.initialize()
+        ctx.accounts.initialize(&ctx.bumps)?;
+        Ok(())
     }
     pub fn create_policy(
         ctx: Context<CreatePolicy>,
         insured_amount: u64,
         policy_id: u64,
+        policy_duration_seconds: i64,
     ) -> Result<()> {
-        ctx.accounts
-            .createpolicy(&ctx.bumps, insured_amount, policy_id)?;
+        ctx.accounts.createpolicy(
+            &ctx.bumps,
+            insured_amount,
+            policy_id,
+            policy_duration_seconds,
+        )?;
         Ok(())
     }
 

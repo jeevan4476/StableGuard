@@ -1,16 +1,22 @@
 pub use crate::constants;
 use crate::state::policy::PolicyAccount;
 use crate::state::policy_status::PolicyStatus;
-use crate::USDT_MINT_PUBKEY;
+use crate::{ InsurancePool, USDT_MINT_PUBKEY};
 use crate::{error::StableGuardError, USDC_MINT_PUBKEY};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 
 #[derive(Accounts)]
-#[instruction(insured_amount:u64,policy_id: u64)]
+#[instruction(insured_amount:u64,policy_id: u64,policy_duration_seconds: i64)]
 pub struct CreatePolicy<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [constants::INSURANCE_POOL_SEED,mint.key().as_ref()],
+        bump,
+    )]
+    pub insurance_pool: Account<'info, InsurancePool>,
     #[account(  
         init,
         payer = buyer,
@@ -51,6 +57,7 @@ impl<'info> CreatePolicy<'info> {
         bumps: &CreatePolicyBumps,
         insured_amount: u64,
         policy_id: u64,
+        policy_duration_seconds: i64, 
     ) -> Result<()> {
         // Inside the createpolicy handler in create_policy.rs
         if self.insured_stablecoin_mint.key() != constants::USDC_MINT_PUBKEY &&
@@ -58,24 +65,31 @@ impl<'info> CreatePolicy<'info> {
             return err!(StableGuardError::UnsupportedStablecoinMint); // Or InvalidStablecoinMint
             }   
         let current_timestamp = Clock::get()?.unix_timestamp;
+        
+        let expiry_timestamp = current_timestamp
+            .checked_add(policy_duration_seconds)
+            .ok_or(StableGuardError::CalculationError)?;
 
-        let expiry_timestamp = current_timestamp + constants::POLICY_TERM;
+        //read the current state of the pool
+        let pool = &self.insurance_pool;
 
-        let premiumratte_bps_u64 = u64::try_from(constants::PREMIUM_RATE_BPS)
-            .or(Err(StableGuardError::CalculationError))?;
-        let premium_paid = (insured_amount.checked_mul(premiumratte_bps_u64))
+        //calucation of the pool's utilization in basis points
+        let utilization_bps = if pool.total_collateral>0{
+            (pool.total_insured_value as u128).checked_mul(10000).ok_or(StableGuardError::CalculationError)?.checked_div(pool.total_collateral as u128).unwrap_or(0) as u64
+
+        }else{
+            0 //if no collateral in the pool then utilization is 0
+        };
+
+        //determining the dynamic rate. Base rate + Utilization rate 
+        let dynamic_rate_bps = constants::PREMIUM_RATE_BPS.checked_add(utilization_bps).ok_or(StableGuardError::CalculationError)?;
+
+        let premium_paid = insured_amount.checked_mul(dynamic_rate_bps).ok_or(StableGuardError::CalculationError)?.checked_div(10000).ok_or(StableGuardError::CalculationError)?;
+
+        let payout_amount = (insured_amount.checked_mul(constants::BINARY_PAYOUT_BPS as u64))
             .ok_or(StableGuardError::CalculationError)?
             .checked_div(10000)
             .ok_or(StableGuardError::CalculationError)?;
-
-        let binarypayout_bps_u64 = u64::try_from(constants::BINARY_PAYOUT_BPS)
-            .or(Err(StableGuardError::CalculationError))?;
-
-        let payout_amount = (insured_amount.checked_mul(binarypayout_bps_u64))
-            .ok_or(StableGuardError::CalculationError)?
-            .checked_div(10000)
-            .ok_or(StableGuardError::CalculationError)?;
-        // let payout_amount = (insured_amount * constants::BINARY_PAYOUT_BPS as u64) / 10000;
 
         let cpi_accounts = TransferChecked {
             from: self.buyer_token_account.to_account_info(),
@@ -89,10 +103,10 @@ impl<'info> CreatePolicy<'info> {
         transfer_checked(cpi_ctx, premium_paid, self.mint.decimals)?;
 
         self.policy_account.set_inner(PolicyAccount {
-            policy_id: policy_id,
+            policy_id,
             buyer: self.buyer.key(),
             insured_stablecoin_mint: self.insured_stablecoin_mint.key(),
-            insured_amount: insured_amount,
+            insured_amount,
             premium_paid,
             payout_amount,
             start_timestamp: current_timestamp,
@@ -101,6 +115,12 @@ impl<'info> CreatePolicy<'info> {
             bump: bumps.policy_account,
             mint: self.mint.key(),
         });
+
+        self.insurance_pool.total_insured_value = self
+            .insurance_pool
+            .total_insured_value
+            .checked_add(insured_amount)
+            .ok_or(StableGuardError::CalculationError)?;
         Ok(())
     }
 }

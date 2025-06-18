@@ -64,4 +64,7 @@ pub enum StableGuardError {
 
     #[msg("Unsupported Stablecoin")]
     UnsupportedStablecoinMint,
+
+    #[msg("Inalid Policy Duration")]
+    InvalidPolicuDuration,
 }

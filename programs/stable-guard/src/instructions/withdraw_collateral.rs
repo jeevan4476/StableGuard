@@ -1,5 +1,5 @@
 pub use crate::constants;
-use crate::error::StableGuardError;
+use crate::{error::StableGuardError, InsurancePool};
 use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
@@ -10,6 +10,12 @@ use anchor_spl::{
 pub struct WithdrawalCollateral<'info> {
     #[account(mut)]
     pub underwriter: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [constants::INSURANCE_POOL_SEED, mint.key().as_ref()],
+        bump
+    )]
+    pub insurance_pool: Account<'info, InsurancePool>,
     #[account(
         mut,
         token::mint= lp_mint,
@@ -66,7 +72,7 @@ impl<'info> WithdrawalCollateral<'info> {
             self.underwriter_lp_account.amount >= lp_amt_to_burn,
             StableGuardError::InsufficientLpTokensToBurn
         );
-        let collateral_token_pool_amount = self.collateral_token_pool.amount;
+        let collateral_token_pool_amount = self.insurance_pool.total_collateral;
         let total_lp_supply = self.lp_mint.supply;
 
         require!(total_lp_supply > 0, StableGuardError::NolpTokensToBurn);
@@ -91,7 +97,8 @@ impl<'info> WithdrawalCollateral<'info> {
         require!(
             collateral_to_withdraw > 0,
             StableGuardError::WithdrawalResultsInZeroUsdc
-        );
+        );  
+
         //sanity check to ensure amout of lp to burn is less than total lp supply
         require!(
             collateral_token_pool_amount >= collateral_to_withdraw,
@@ -124,7 +131,13 @@ impl<'info> WithdrawalCollateral<'info> {
             signer_seeds,
         );
 
-        transfer_checked(cpi_ctx, collateral_to_withdraw, self.mint.decimals)
-        //tranfer USDC to underwriter
+        transfer_checked(cpi_ctx, collateral_to_withdraw, self.mint.decimals)?;
+
+        self.insurance_pool.total_collateral = self.insurance_pool
+        .total_collateral
+        .checked_sub(collateral_to_withdraw)
+        .ok_or(StableGuardError::CalculationError)?;
+        Ok(())
+        //tranfer USDC to underwritersss
     }
 }

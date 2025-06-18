@@ -10,11 +10,11 @@ pub const AUTHORITY_SEED: &[u8] = b"pool_authority";
 
 pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 
+pub const INSURANCE_POOL_SEED: &[u8] = b"insurance_pool";
+
 ///Policy Parameters
 
 pub const SECONDS_30: u64 = 60 * 60 * 24;
-
-pub const POLICY_TERM: i64 = 7 * 24 * 60 * 60;
 
 // pub const POLICY_TERM: i64 = 3; //for testing
 
@@ -23,7 +23,7 @@ pub const DEPEG_THRESHOLD_PRICE: u64 = 985_000_00;
 
 pub const BINARY_PAYOUT_BPS: u16 = 1000;
 
-pub const PREMIUM_RATE_BPS: u16 = 50;
+pub const PREMIUM_RATE_BPS: u64 = 50;
 
 pub const MAX_ORACLE_AGE_SECONDS: u64 = 60;
 

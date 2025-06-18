@@ -1,4 +1,5 @@
 pub use crate::constants;
+use crate::state::pool::InsurancePool;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
 
@@ -6,6 +7,14 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
+    #[account(
+        init,
+        payer=authority,
+        space = 8 + InsurancePool::INIT_SPACE, 
+        seeds = [constants::INSURANCE_POOL_SEED,mint.key().as_ref()],
+        bump,
+    )]
+    pub insurance_pool: Account<'info, InsurancePool>,
     #[account(
         init,
         payer = authority,
@@ -40,14 +49,21 @@ pub struct Initialize<'info> {
 }
 
 impl<'info> Initialize<'info> {
-    pub fn initialize(&mut self) -> Result<()> {
+    pub fn initialize(&mut self,bumps:&InitializeBumps) -> Result<()> {
         msg!("StableGuard protocol initialized!");
+
+        self.insurance_pool.set_inner(InsurancePool { 
+            authority: self.authority.key(),
+            collateral_mint: self.mint.key(),
+            total_collateral: 0,
+            total_insured_value: 0, 
+            lp_token_mint: self.lp_mint.key(), 
+            bump: bumps.insurance_pool 
+        });
+
+        msg!("InsurancePool state account created: {}", self.insurance_pool.key());
         msg!("LP Mint PDA created: {}", self.lp_mint.key());
-        msg!(
-            "Collateral Pool USDC Account PDA created: {}",
-            self.collateral_token_pool.key()
-        );
-        msg!("Pool Authority PDA: {}", self.pool_authority.key());
-        Ok(())
+        msg!("Collateral Pool Account PDA created: {}", self.collateral_token_pool.key());
+        msg!("Pool Authority PDA: {}", self.pool_authority.key());        Ok(())
     }
 }
