@@ -62,82 +62,88 @@ pub struct WithdrawalCollateral<'info> {
 }
 
 impl<'info> WithdrawalCollateral<'info> {
-    pub fn withdraw(
-        &mut self,
-        bumps: &WithdrawalCollateralBumps,
-        lp_amt_to_burn: u64,
-    ) -> Result<()> {
-        require!(lp_amt_to_burn > 0, StableGuardError::WithdrawalAmountZero);
-        require!(
-            self.underwriter_lp_account.amount >= lp_amt_to_burn,
-            StableGuardError::InsufficientLpTokensToBurn
-        );
-        let collateral_token_pool_amount = self.insurance_pool.total_collateral;
-        let total_lp_supply = self.lp_mint.supply;
+   pub fn withdraw(
+    &mut self,
+    bumps: &WithdrawalCollateralBumps,
+    lp_amt_to_burn: u64,
+) -> Result<()> {
+    // --- All your existing checks are good ---
+    require!(lp_amt_to_burn > 0, StableGuardError::WithdrawalAmountZero);
+    require!(
+        self.underwriter_lp_account.amount >= lp_amt_to_burn,
+        StableGuardError::InsufficientLpTokensToBurn
+    );
 
-        require!(total_lp_supply > 0, StableGuardError::NolpTokensToBurn);
+    let total_collateral = self.insurance_pool.total_collateral;
+    let total_lp_supply = self.lp_mint.supply;
+    require!(total_lp_supply > 0, StableGuardError::NolpTokensToBurn);
 
-        let lp_amt_to_burn_u128 = u128::try_from(lp_amt_to_burn)
-        .map_err(|_| StableGuardError::CalculationError)?;
-        
-        let collateral_pool_amt_u128 = u128::try_from(collateral_token_pool_amount)
-        .map_err(|_| StableGuardError::CalculationError)?;
-        
-        let total_lp_supply_u128 = u128::try_from(total_lp_supply)
-        .map_err(|_| StableGuardError::CalculationError)?;
+    // --- Your existing calculation logic is also perfect ---
+    let collateral_to_withdraw = u128::from(lp_amt_to_burn)
+        .checked_mul(u128::from(total_collateral))
+        .ok_or(StableGuardError::CalculationError)?
+        .checked_div(u128::from(total_lp_supply))
+        .ok_or(StableGuardError::CalculationError)?;
 
-        let collateral_to_withdraw_u128 = (lp_amt_to_burn_u128)
-            .checked_mul(collateral_pool_amt_u128)
-            .ok_or(StableGuardError::CalculationError)?
-            .checked_div(total_lp_supply_u128)
-            .ok_or(StableGuardError::CalculationError)?;
-
-        let collateral_to_withdraw = u64::try_from(collateral_to_withdraw_u128)
+    let collateral_to_withdraw = u64::try_from(collateral_to_withdraw)
         .or(Err(StableGuardError::CalculationError))?;
-        require!(
-            collateral_to_withdraw > 0,
-            StableGuardError::WithdrawalResultsInZeroUsdc
-        );  
 
-        //sanity check to ensure amout of lp to burn is less than total lp supply
-        require!(
-            collateral_token_pool_amount >= collateral_to_withdraw,
-            StableGuardError::WithdrawalAmountExceedsPoolBalance
-        );
-        //Burn LP tkns
-        let cpi_accounts = Burn {
-            mint: self.lp_mint.to_account_info(),
-            from: self.underwriter_lp_account.to_account_info(),
-            authority: self.underwriter.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
+    require!(
+        collateral_to_withdraw > 0,
+        StableGuardError::WithdrawalResultsInZeroUsdc
+    );
+    require!(
+        total_collateral >= collateral_to_withdraw,
+        StableGuardError::WithdrawalAmountExceedsPoolBalance
+    );
 
-        burn(cpi_ctx, lp_amt_to_burn)?;
 
-        let cpi_account = TransferChecked {
-            from: self.collateral_token_pool.to_account_info(),
-            to: self.underwriter_token_account.to_account_info(),
-            mint: self.mint.to_account_info(),
-            authority: self.pool_authority.to_account_info(),
-        };
+    // --- ADD THIS NEW CRITICAL CHECK HERE ---
+    let remaining_collateral_after_withdrawal = total_collateral
+        .checked_sub(collateral_to_withdraw)
+        .ok_or(StableGuardError::CalculationError)?;
 
-        let authority_seed_bump = bumps.pool_authority;
-        let authority_seeds = &[constants::AUTHORITY_SEED, &[authority_seed_bump]];
-        let signer_seeds = &[&authority_seeds[..]];
+    require!(
+        remaining_collateral_after_withdrawal >= self.insurance_pool.total_insured_value,
+        StableGuardError::WithdrawalBlockedByUtilization
+    );
+    // --- END OF NEW CRITICAL CHECK ---
 
-        let cpi_ctx = CpiContext::new_with_signer(
-            self.token_program.to_account_info(),
-            cpi_account,
-            signer_seeds,
-        );
 
-        transfer_checked(cpi_ctx, collateral_to_withdraw, self.mint.decimals)?;
+    // --- The rest of your function (burn, transfer, state update) remains the same ---
 
-        self.insurance_pool.total_collateral = self.insurance_pool
+    // Burn LP tokens
+    let cpi_accounts_burn = Burn {
+        mint: self.lp_mint.to_account_info(),
+        from: self.underwriter_lp_account.to_account_info(),
+        authority: self.underwriter.to_account_info(),
+    };
+    let cpi_ctx_burn = CpiContext::new(self.token_program.to_account_info(), cpi_accounts_burn);
+    burn(cpi_ctx_burn, lp_amt_to_burn)?;
+
+    // Transfer collateral back to underwriter
+    let cpi_accounts_transfer = TransferChecked {
+        from: self.collateral_token_pool.to_account_info(),
+        to: self.underwriter_token_account.to_account_info(),
+        mint: self.mint.to_account_info(),
+        authority: self.pool_authority.to_account_info(),
+    };
+    let authority_seeds_bump = bumps.pool_authority;
+    let authority_seeds = &[constants::AUTHORITY_SEED, &[authority_seeds_bump]];
+    let signer_seeds = &[&authority_seeds[..]];
+    let cpi_ctx_transfer = CpiContext::new_with_signer(
+        self.token_program.to_account_info(),
+        cpi_accounts_transfer,
+        signer_seeds,
+    );
+    transfer_checked(cpi_ctx_transfer, collateral_to_withdraw, self.mint.decimals)?;
+
+    // Update the insurance pool state
+    self.insurance_pool.total_collateral = self.insurance_pool
         .total_collateral
         .checked_sub(collateral_to_withdraw)
         .ok_or(StableGuardError::CalculationError)?;
-        Ok(())
-        //tranfer USDC to underwritersss
-    }
+
+    Ok(())
+}
 }

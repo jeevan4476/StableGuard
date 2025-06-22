@@ -7,7 +7,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 
 #[derive(Accounts)]
-#[instruction(insured_amount:u64,policy_id: u64,policy_duration_seconds: i64)]
+#[instruction(insured_amount:u64,policy_duration_seconds: i64)]
 pub struct CreatePolicy<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
@@ -20,7 +20,7 @@ pub struct CreatePolicy<'info> {
     #[account(  
         init,
         payer = buyer,
-        seeds=[constants::POLICY_SEED,buyer.key().as_ref(),policy_id.to_le_bytes().as_ref()],
+        seeds=[constants::POLICY_SEED,buyer.key().as_ref(),(insurance_pool.last_policy_id+1).to_le_bytes().as_ref()],
         bump,
         space = 8+PolicyAccount::INIT_SPACE
     )]
@@ -42,7 +42,7 @@ pub struct CreatePolicy<'info> {
     pub collateral_token_pool: Account<'info, TokenAccount>,
 
     #[account(
-        constraint =  mint.key() == USDC_MINT_PUBKEY  || mint.key() == USDT_MINT_PUBKEY //comment while testing
+        constraint =  mint.key() == USDC_MINT_PUBKEY  @ StableGuardError::UnsupportedStablecoinMint //comment while testing
     )]
     pub mint: Account<'info, Mint>,
 
@@ -56,9 +56,10 @@ impl<'info> CreatePolicy<'info> {
         &mut self,
         bumps: &CreatePolicyBumps,
         insured_amount: u64,
-        policy_id: u64,
         policy_duration_seconds: i64, 
     ) -> Result<()> {
+        self.insurance_pool.last_policy_id = self.insurance_pool.last_policy_id.checked_add(1).ok_or(StableGuardError::CalculationError)?;
+        let new_policy_id = self.insurance_pool.last_policy_id;
         // Inside the createpolicy handler in create_policy.rs
         if self.insured_stablecoin_mint.key() != constants::USDC_MINT_PUBKEY &&
             self.insured_stablecoin_mint.key() != constants::USDT_MINT_PUBKEY {
@@ -91,6 +92,8 @@ impl<'info> CreatePolicy<'info> {
             .checked_div(10000)
             .ok_or(StableGuardError::CalculationError)?;
 
+        require!(self.insurance_pool.total_collateral>=self.insurance_pool.total_insured_value.checked_add(payout_amount).ok_or(StableGuardError::CalculationError)?,StableGuardError::InsufficientPoolCollateralForPayout);
+        
         let cpi_accounts = TransferChecked {
             from: self.buyer_token_account.to_account_info(),
             mint: self.mint.to_account_info(),
@@ -103,7 +106,7 @@ impl<'info> CreatePolicy<'info> {
         transfer_checked(cpi_ctx, premium_paid, self.mint.decimals)?;
 
         self.policy_account.set_inner(PolicyAccount {
-            policy_id,
+            policy_id:new_policy_id,
             buyer: self.buyer.key(),
             insured_stablecoin_mint: self.insured_stablecoin_mint.key(),
             insured_amount,

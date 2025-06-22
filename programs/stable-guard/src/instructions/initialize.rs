@@ -49,7 +49,7 @@ pub struct Initialize<'info> {
 }
 
 impl<'info> Initialize<'info> {
-    pub fn initialize(&mut self,bumps:&InitializeBumps) -> Result<()> {
+    pub fn initialize(&mut self,bumps:&InitializeBumps,depeg_threshold:u64) -> Result<()> {
         msg!("StableGuard protocol initialized!");
 
         self.insurance_pool.set_inner(InsurancePool { 
@@ -58,6 +58,8 @@ impl<'info> Initialize<'info> {
             total_collateral: 0,
             total_insured_value: 0, 
             lp_token_mint: self.lp_mint.key(), 
+            depeg_threshold,
+            last_policy_id: 0,
             bump: bumps.insurance_pool 
         });
 

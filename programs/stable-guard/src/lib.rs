@@ -16,22 +16,17 @@ declare_id!("7Nyo8GmYxFC3YoqTUysTyM6p9vaTGrsh8dDDqbFLkVc2");
 pub mod stable_guard {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        ctx.accounts.initialize(&ctx.bumps)?;
+    pub fn initialize(ctx: Context<Initialize>, depeg_threshold: u64) -> Result<()> {
+        ctx.accounts.initialize(&ctx.bumps, depeg_threshold)?;
         Ok(())
     }
     pub fn create_policy(
         ctx: Context<CreatePolicy>,
         insured_amount: u64,
-        policy_id: u64,
         policy_duration_seconds: i64,
     ) -> Result<()> {
-        ctx.accounts.createpolicy(
-            &ctx.bumps,
-            insured_amount,
-            policy_id,
-            policy_duration_seconds,
-        )?;
+        ctx.accounts
+            .createpolicy(&ctx.bumps, insured_amount, policy_duration_seconds)?;
         Ok(())
     }
 

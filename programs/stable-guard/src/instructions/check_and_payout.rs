@@ -7,13 +7,13 @@ use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2
 #[derive(Accounts)]
 
 pub struct CheckAndPayout<'info> {
-    #[account(mut)]
-    pub buyer: Signer<'info>,
+    //CHECK:This account's key is check against the pocily_account.buyer field.
+    pub buyer: UncheckedAccount<'info>, //buyer no longer signs. Anyone can call this to settle the policy
     #[account(
         mut,
         seeds=[constants::POLICY_SEED,policy_account.buyer.key().as_ref(),policy_account.policy_id.to_le_bytes().as_ref()],
         bump = policy_account.bump,
-        has_one = buyer
+        constraint = policy_account.buyer == buyer.key() @ StableGuardError::InvalidPolicyOwner
     )]
     pub policy_account: Account<'info, PolicyAccount>,
     #[account(
@@ -53,7 +53,7 @@ impl<'info> CheckAndPayout<'info> {
     pub fn check_payout(&mut self, bumps: &CheckAndPayoutBumps, _policy_id: u64) -> Result<()> {
         let policy = &mut self.policy_account;
         let pyth_feed_account_info = &self.pyth_price_update;
-        let maximum_age: u64 = SECONDS_30;
+        let maximum_age: u64 = constants::MAX_ORACLE_AGE_SECONDS;
         // Require the policy to be active and expired
         require!(
             policy.status == PolicyStatus::Active,
@@ -125,6 +125,16 @@ impl<'info> CheckAndPayout<'info> {
         };
         // msg!("{}", scaled_pyth_price);
 
+        let max_allowable_confidence = (scaled_pyth_price.abs() as u64)
+            .checked_mul(constants::MAX_CONFIDENCE_BPS)
+            .ok_or(StableGuardError::CalculationError)?
+            .checked_div(10000)
+            .ok_or(StableGuardError::CalculationError)?;
+
+        require!(
+            price_data.conf < max_allowable_confidence,
+            StableGuardError::OracleConfidenceTooWide
+        );
         if scaled_pyth_price < constants::DEPEG_THRESHOLD_PRICE as i64 {
             //DEPEG condition met
             let payout_amt_to_transfer = policy.payout_amount;

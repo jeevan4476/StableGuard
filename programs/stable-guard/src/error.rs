@@ -67,4 +67,10 @@ pub enum StableGuardError {
 
     #[msg("Inalid Policy Duration")]
     InvalidPolicuDuration,
+
+    #[msg("Withdrawal blocked by utilization ratio")]
+    WithdrawalBlockedByUtilization,
+
+    #[msg("Invalid Policy Owner")]
+    InvalidPolicyOwner,
 }

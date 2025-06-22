@@ -9,6 +9,6 @@ pub struct InsurancePool {
     pub total_insured_value: u64,
     pub lp_token_mint: Pubkey,
     pub depeg_threshold: u64,
-
+    pub last_policy_id: u64,
     pub bump: u8,
 }
