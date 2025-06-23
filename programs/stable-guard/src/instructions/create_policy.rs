@@ -1,7 +1,7 @@
 pub use crate::constants;
 use crate::state::policy::PolicyAccount;
 use crate::state::policy_status::PolicyStatus;
-use crate::{ InsurancePool, USDT_MINT_PUBKEY};
+use crate::{ InsurancePool};
 use crate::{error::StableGuardError, USDC_MINT_PUBKEY};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};

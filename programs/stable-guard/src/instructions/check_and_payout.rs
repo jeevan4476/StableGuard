@@ -1,5 +1,5 @@
 pub use crate::constants;
-use crate::{error::StableGuardError, InsurancePool, PolicyAccount, PolicyStatus, SECONDS_30};
+use crate::{error::StableGuardError, InsurancePool, PolicyAccount, PolicyStatus};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
 use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2};
@@ -7,7 +7,7 @@ use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2
 #[derive(Accounts)]
 
 pub struct CheckAndPayout<'info> {
-    //CHECK:This account's key is check against the pocily_account.buyer field.
+    /// CHECK: This account's key is check against the pocily_account.buyer field.
     pub buyer: UncheckedAccount<'info>, //buyer no longer signs. Anyone can call this to settle the policy
     #[account(
         mut,
