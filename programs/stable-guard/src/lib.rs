@@ -10,7 +10,7 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("7Nyo8GmYxFC3YoqTUysTyM6p9vaTGrsh8dDDqbFLkVc2");
+declare_id!("B6t67fYC2qD91KTtboBoj4NUXhyBTk7madXZ7oUdD8VN");
 
 #[program]
 pub mod stable_guard {
@@ -26,18 +26,18 @@ pub mod stable_guard {
         policy_duration_seconds: i64,
     ) -> Result<()> {
         ctx.accounts
-            .createpolicy(&ctx.bumps, insured_amount, policy_duration_seconds)?;
+            .create_policy(&ctx.bumps, insured_amount, policy_duration_seconds)?;
         Ok(())
     }
 
     pub fn deposit_collateral(ctx: Context<DepositCollateral>, deposit_amount: u64) -> Result<()> {
         ctx.accounts
-            .deposit_collateral(deposit_amount, &ctx.bumps)?;
+            .deposit_collateral(&ctx.bumps, deposit_amount)?;
         Ok(())
     }
 
     pub fn withdraw_collateral(
-        ctx: Context<WithdrawalCollateral>,
+        ctx: Context<WithdrawCollateral>,
         lp_amount_to_burn: u64,
     ) -> Result<()> {
         ctx.accounts.withdraw(&ctx.bumps, lp_amount_to_burn)?;

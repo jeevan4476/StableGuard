@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-stable_guard = "7Nyo8GmYxFC3YoqTUysTyM6p9vaTGrsh8dDDqbFLkVc2"
+stable_guard = "B6t67fYC2qD91KTtboBoj4NUXhyBTk7madXZ7oUdD8VN"
 
 [registry]
 url = "https://api.apr.dev"

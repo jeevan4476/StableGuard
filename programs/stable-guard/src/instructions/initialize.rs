@@ -19,7 +19,7 @@ pub struct Initialize<'info> {
         init,
         payer = authority,
         seeds = [constants::LP_MINT_SEED,mint.key().as_ref()],//Updated if multiple pools are initialized then lp tokens are distinct to each pool 
-        mint::decimals = 6,
+        mint::decimals = mint.decimals,
         mint::authority = pool_authority,
         bump
     )]
@@ -35,7 +35,8 @@ pub struct Initialize<'info> {
     )]
     pub collateral_token_pool: Account<'info, TokenAccount>,
 
-    /// CHECK: this is safe
+    /// CHECK: This is programs's "master" authority pds. this account doesn't hold any data itself,
+    /// but it servers as the designated acuthority for the lp_mint and collateral_token_pool 
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
@@ -66,6 +67,7 @@ impl<'info> Initialize<'info> {
         msg!("InsurancePool state account created: {}", self.insurance_pool.key());
         msg!("LP Mint PDA created: {}", self.lp_mint.key());
         msg!("Collateral Pool Account PDA created: {}", self.collateral_token_pool.key());
-        msg!("Pool Authority PDA: {}", self.pool_authority.key());        Ok(())
+        msg!("Pool Authority PDA: {}", self.pool_authority.key());        
+        Ok(())
     }
 }

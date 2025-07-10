@@ -44,7 +44,7 @@ pub struct DepositCollateral<'info> {
     )]
     pub lp_mint: Account<'info, Mint>,
 
-    /// CHECK: this is safe
+    /// CHECK: The program's master authority PDA, required to sign for the minting of LP tokens.
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
@@ -61,8 +61,8 @@ pub struct DepositCollateral<'info> {
 impl<'info> DepositCollateral<'info> {
     pub fn deposit_collateral(
         &mut self,
-        deposit_amount: u64,
         bumps: &DepositCollateralBumps,
+        deposit_amount: u64,
     ) -> Result<()> {
         //Transfer tokens into the pool
         let cpi_accounts = TransferChecked {
@@ -73,30 +73,32 @@ impl<'info> DepositCollateral<'info> {
         };
         let cpi_ctx = CpiContext::new(self.token_program.to_account_info(), cpi_accounts);
         transfer_checked(cpi_ctx, deposit_amount, self.mint.decimals)?;
+        msg!("Collateral transferred to pool vault.");
 
-        //Calculate LP tokens to mint
-        let current_lp_supply = self.lp_mint.supply;
-        let lp_tokens_to_mint: u64;
-
-        //"before" state of ledger
-        let totol_collateral_in_pool = self.insurance_pool.total_collateral;
-
-        if current_lp_supply == 0 || totol_collateral_in_pool == 0 {
-            lp_tokens_to_mint = deposit_amount;
-        } else {
-            lp_tokens_to_mint = (deposit_amount as u128)
-                .checked_mul(current_lp_supply as u128)
-                .ok_or(StableGuardError::CalculationError)?
-                .checked_div(totol_collateral_in_pool as u128)
-                .ok_or(StableGuardError::CalculationError)? as u64;
-        }
+        // --- 2. Calculate LP Tokens to Mint ---
+        let lp_tokens_to_mint =
+            if self.lp_mint.supply == 0 || self.insurance_pool.total_collateral == 0 {
+                // If this is the first deposit, the exchange rate is 1:1.
+                // The amount of LP tokens minted is equal to the amount of collateral deposited.
+                deposit_amount
+            } else {
+                // For subsequent deposits, the amount of LP tokens is calculated proportionally
+                // to maintain the value of existing LPs' shares.
+                // Formula: (deposit_amount * current_lp_supply) / total_collateral_before_deposit
+                (deposit_amount as u128)
+                    .checked_mul(self.lp_mint.supply as u128)
+                    .ok_or(StableGuardError::CalculationError)?
+                    .checked_div(self.insurance_pool.total_collateral as u128)
+                    .ok_or(StableGuardError::CalculationError)? as u64
+            };
 
         require!(
             lp_tokens_to_mint > 0,
             StableGuardError::DepositTooSmallToMintLp
         );
+        msg!("Calculated {} LP tokens to mint.", lp_tokens_to_mint);
 
-        //mint LP tokens to underwriter
+        // --- 3. Mint LP Tokens to Underwriter ---
         let authority_seeds_bump = bumps.pool_authority;
         let authority_seeds = &[constants::AUTHORITY_SEED, &[authority_seeds_bump]];
         let signer_seeds = &[&authority_seeds[..]];
@@ -106,20 +108,27 @@ impl<'info> DepositCollateral<'info> {
             to: self.underwriter_lp_token_account.to_account_info(),
             authority: self.pool_authority.to_account_info(),
         };
-
-        let cpi_ctx = CpiContext::new_with_signer(
+        let cpi_ctx_mint = CpiContext::new_with_signer(
             self.token_program.to_account_info(),
             mint_lp_accounts,
             signer_seeds,
         );
-        mint_to(cpi_ctx, lp_tokens_to_mint)?;
+        mint_to(cpi_ctx_mint, lp_tokens_to_mint)?;
+        msg!("LP tokens minted to underwriter.");
 
-        //update the insurance pool state
+        // --- 4. Update Pool State ---
+        // This must be done *after* the LP token calculation, which relies on the "before" state.
         self.insurance_pool.total_collateral = self
             .insurance_pool
             .total_collateral
             .checked_add(deposit_amount)
             .ok_or(StableGuardError::CalculationError)?;
+
+        msg!(
+            "Pool total collateral updated to: {}",
+            self.insurance_pool.total_collateral
+        );
+        msg!("Deposit successful.");
         Ok(())
     }
 }

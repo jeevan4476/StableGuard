@@ -8,12 +8,12 @@ use pyth_solana_receiver_sdk::price_update::{get_feed_id_from_hex, PriceUpdateV2
 
 pub struct CheckAndPayout<'info> {
     /// CHECK: This account's key is check against the pocily_account.buyer field.
-    pub buyer: UncheckedAccount<'info>, //buyer no longer signs. Anyone can call this to settle the policy
+    pub policy_owner: UncheckedAccount<'info>, //buyer no longer signs. Anyone can call this to settle the policy
     #[account(
         mut,
         seeds=[constants::POLICY_SEED,policy_account.buyer.key().as_ref(),policy_account.policy_id.to_le_bytes().as_ref()],
         bump = policy_account.bump,
-        constraint = policy_account.buyer == buyer.key() @ StableGuardError::InvalidPolicyOwner
+        constraint = policy_account.buyer == policy_owner.key() @ StableGuardError::InvalidPolicyOwner
     )]
     pub policy_account: Account<'info, PolicyAccount>,
     #[account(
@@ -29,7 +29,7 @@ pub struct CheckAndPayout<'info> {
         bump
     )]
     pub collateral_token_pool: Account<'info, TokenAccount>,
-    /// CHECK: this is safe
+    /// CHECK: The program's master authority PDA, required to sign for the payout transfer.
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
@@ -38,9 +38,9 @@ pub struct CheckAndPayout<'info> {
     #[account(
         mut,
         token::mint = mint,
-        token::authority = policy_account.buyer
+        token::authority = policy_owner
     )]
-    pub buyer_token_account: Account<'info, TokenAccount>,
+    pub payout_token_account: Account<'info, TokenAccount>,
     #[account(
         address = collateral_token_pool.mint
     )]
@@ -51,80 +51,75 @@ pub struct CheckAndPayout<'info> {
 
 impl<'info> CheckAndPayout<'info> {
     pub fn check_payout(&mut self, bumps: &CheckAndPayoutBumps, _policy_id: u64) -> Result<()> {
-        let policy = &mut self.policy_account;
-        let pyth_feed_account_info = &self.pyth_price_update;
-        let maximum_age: u64 = constants::MAX_ORACLE_AGE_SECONDS;
-        // Require the policy to be active and expired
+        msg!(
+            "Checking policy #{} for settlement...",
+            self.policy_account.policy_id
+        );
+
+        // --- 1. Pre-flight Checks ---
         require!(
-            policy.status == PolicyStatus::Active,
+            self.policy_account.status == PolicyStatus::Active,
             StableGuardError::PolicyAlreadyProcessed
         );
         require!(
-            Clock::get()?.unix_timestamp >= policy.expiry_timestamp,
+            Clock::get()?.unix_timestamp >= self.policy_account.expiry_timestamp,
             StableGuardError::PolicyNotExpired
         );
+        msg!("Policy is active and expired. Proceeding with oracle check.");
 
-        // let current_pyth_time = Clock::get()?.unix_timestamp;
-        let relevant_feed_id: &str = match policy.insured_stablecoin_mint {
+        // --- 2. Oracle Price Fetching ---
+        let relevant_feed_id_str = match self.policy_account.insured_stablecoin_mint {
             key if key == constants::USDC_MINT_PUBKEY => constants::PYTH_USDC_USD_FEED_ID,
             key if key == constants::USDT_MINT_PUBKEY => constants::PYTH_USDT_USD_FEED_ID,
             _ => return err!(StableGuardError::InvalidStablecoinMint),
         };
+        let feed_id = get_feed_id_from_hex(relevant_feed_id_str)?;
 
-        let feed_id: [u8; 32] = get_feed_id_from_hex(relevant_feed_id)?;
-
-        let price_data = pyth_feed_account_info.get_price_no_older_than(
+        // Fetch the price, ensuring it's not older than the maximum allowed age.
+        // This is a critical defense against using stale data during network issues.
+        let price_data = self.pyth_price_update.get_price_no_older_than(
             &Clock::get()?,
-            maximum_age,
+            constants::MAX_ORACLE_AGE_SECONDS,
             &feed_id,
         )?;
-
         msg!(
-            "Price for feed {} is {} * 10^{} and {}",
-            relevant_feed_id,
-            price_data.price,
-            price_data.exponent,
-            price_data.conf
+            "Fetched price from Pyth feed {}: {}",
+            relevant_feed_id_str,
+            price_data.price
         );
 
-        //price_data contains price(i64) expo(i32) confidence(u64)
-        // require!(
-        //     price_data.conf < constants::MAX_CONFIDENCE_VALUE,
-        //     StableGuardError::OracleConfidenceTooWide
-        // );
+        // --- 3. Price Scaling ---
+        // Pyth prices have a dynamic exponent. We must scale the price to a common
+        // 8-decimal format to safely compare it with our `depeg_threshold`.
+        let scaled_pyth_price = {
+            let pyth_mantissa = price_data.price;
+            let pyth_exponent = price_data.exponent;
+            const TARGET_DECIMALS: i32 = 8;
 
-        // --- Price Scaling Logic ---
-        let pyth_mantissa = price_data.price;
+            require!(
+                pyth_exponent <= 0,
+                StableGuardError::OracleExponentUnexpected
+            );
+            let scale_difference = pyth_exponent.abs() - TARGET_DECIMALS;
 
-        let pyth_exponent = price_data.exponent;
-
-        const TARGET_DECIMALS: i32 = 8;
-        // If pyth_exponent is -8 and TARGET_DECIMALS is 8, we need to multiply by 10^(8-8) = 10^0 = 1.
-
-        if pyth_exponent > 0 {
-            return err!(StableGuardError::OracleExponentUnexpected);
-        }
-        let scale_difference = pyth_exponent - (-TARGET_DECIMALS);
-        let scaled_pyth_price: i64;
-
-        if scale_difference > 0 {
-            let scale_difference_u32 = u32::try_from(scale_difference)?;
-            let multiplier = i64::try_from(10u64.pow(scale_difference_u32))?;
-            scaled_pyth_price = pyth_mantissa
-                .checked_mul(multiplier)
-                .ok_or(StableGuardError::CalculationError)?;
-        } else if scale_difference < 0 {
-            let scale_difference_u32 = u32::try_from(-scale_difference)?;
-            let divisor = i64::try_from(10u64.pow(scale_difference_u32))?;
-            require!(divisor != 0, StableGuardError::CalculationError);
-            scaled_pyth_price = pyth_mantissa
-                .checked_div(divisor)
-                .ok_or(StableGuardError::CalculationError)?;
-        } else {
-            scaled_pyth_price = pyth_mantissa;
+            if scale_difference > 0 {
+                pyth_mantissa
+                    .checked_div(10i64.pow(scale_difference as u32))
+                    .ok_or(StableGuardError::CalculationError)?
+            } else if scale_difference < 0 {
+                pyth_mantissa
+                    .checked_mul(10i64.pow(scale_difference.abs() as u32))
+                    .ok_or(StableGuardError::CalculationError)?
+            } else {
+                pyth_mantissa
+            }
         };
-        // msg!("{}", scaled_pyth_price);
+        msg!("Scaled oracle price (8 decimals): {}", scaled_pyth_price);
 
+        // --- 4. Confidence Check ---
+        // We must check the oracle's confidence interval. A wide interval suggests market
+        // turmoil or potential oracle issues. We calculate a max allowed confidence as a
+        // percentage (BPS) of the price itself.
         let max_allowable_confidence = (scaled_pyth_price.abs() as u64)
             .checked_mul(constants::MAX_CONFIDENCE_BPS)
             .ok_or(StableGuardError::CalculationError)?
@@ -132,17 +127,21 @@ impl<'info> CheckAndPayout<'info> {
             .ok_or(StableGuardError::CalculationError)?;
 
         require!(
-            price_data.conf < max_allowable_confidence,
+            price_data.conf <= max_allowable_confidence,
             StableGuardError::OracleConfidenceTooWide
         );
-        if scaled_pyth_price < constants::DEPEG_THRESHOLD_PRICE as i64 {
-            //DEPEG condition met
-            let payout_amt_to_transfer = policy.payout_amount;
+        msg!(
+            "Oracle confidence check passed ({} <= {}).",
+            price_data.conf,
+            max_allowable_confidence
+        );
 
-            let collateral_pool = &mut self.collateral_token_pool;
-
+        // --- 5. De-peg Decision ---
+        if scaled_pyth_price < self.insurance_pool.depeg_threshold as i64 {
+            // --- 6a. Payout Execution ---
+            msg!("De-peg event DETECTED. Executing payout.");
             require!(
-                collateral_pool.amount >= payout_amt_to_transfer,
+                self.collateral_token_pool.amount >= self.policy_account.payout_amount,
                 StableGuardError::InsufficientPoolCollateralForPayout
             );
 
@@ -150,31 +149,43 @@ impl<'info> CheckAndPayout<'info> {
             let authority_seeds = &[constants::AUTHORITY_SEED, &[authority_seeds_bump]];
             let signer_seeds = &[&authority_seeds[..]];
 
-            let transfer_payout_accounts = TransferChecked {
-                from: collateral_pool.to_account_info(),
+            let cpi_accounts_transfer = TransferChecked {
+                from: self.collateral_token_pool.to_account_info(),
+                to: self.payout_token_account.to_account_info(),
                 mint: self.mint.to_account_info(),
-                to: self.buyer_token_account.to_account_info(),
                 authority: self.pool_authority.to_account_info(),
             };
-
-            let cpi_ctx = CpiContext::new_with_signer(
+            let cpi_ctx_transfer = CpiContext::new_with_signer(
                 self.token_program.to_account_info(),
-                transfer_payout_accounts,
+                cpi_accounts_transfer,
                 signer_seeds,
             );
+            transfer_checked(
+                cpi_ctx_transfer,
+                self.policy_account.payout_amount,
+                self.mint.decimals,
+            )?;
 
-            transfer_checked(cpi_ctx, payout_amt_to_transfer, self.mint.decimals)?;
             self.policy_account.status = PolicyStatus::ExpiredPaid;
+            msg!(
+                "Payout of {} transferred successfully.",
+                self.policy_account.payout_amount
+            );
         } else {
-            //No DEPEG
+            // --- 6b. No Payout ---
+            msg!("No de-peg event detected. Closing policy without payout.");
             self.policy_account.status = PolicyStatus::ExpiredNotPaid;
         }
-        let insured_amount_to_reduce = self.policy_account.insured_amount;
+
+        // --- 7. Final State Update ---
+        // In both cases (paid or not), the policy is now settled, so we reduce the
+        // pool's total insured value.
         self.insurance_pool.total_insured_value = self
             .insurance_pool
             .total_insured_value
-            .checked_sub(insured_amount_to_reduce)
+            .checked_sub(self.policy_account.insured_amount)
             .ok_or(StableGuardError::CalculationError)?;
+        msg!("Pool total insured value updated. Settlement complete.");
 
         Ok(())
     }

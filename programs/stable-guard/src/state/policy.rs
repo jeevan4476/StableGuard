@@ -12,7 +12,7 @@ pub struct PolicyAccount {
     pub premium_paid: u64,
     pub payout_amount: u64,
     pub start_timestamp: i64,
-    pub expiry_timestamp: i64, // start_timestamp + 7 days
+    pub expiry_timestamp: i64,
     pub status: PolicyStatus,
     pub bump: u8,
     pub mint: Pubkey,

@@ -1,7 +1,7 @@
 pub use crate::constants;
 use crate::state::policy::PolicyAccount;
 use crate::state::policy_status::PolicyStatus;
-use crate::{ InsurancePool};
+use crate::state::pool::InsurancePool;
 use crate::{error::StableGuardError, USDC_MINT_PUBKEY};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{transfer_checked, Mint, Token, TokenAccount, TransferChecked};
@@ -14,13 +14,17 @@ pub struct CreatePolicy<'info> {
     #[account(
         mut,
         seeds = [constants::INSURANCE_POOL_SEED,mint.key().as_ref()],
-        bump,
+        bump=insurance_pool.bump,
     )]
     pub insurance_pool: Account<'info, InsurancePool>,
     #[account(  
         init,
         payer = buyer,
-        seeds=[constants::POLICY_SEED,buyer.key().as_ref(),(insurance_pool.last_policy_id+1).to_le_bytes().as_ref()],
+        seeds=[constants::POLICY_SEED,buyer.key().as_ref(),insurance_pool.last_policy_id
+        .checked_add(1)
+        .unwrap()
+        .to_le_bytes()
+        .as_ref()],
         bump,
         space = 8+PolicyAccount::INIT_SPACE
     )]
@@ -52,7 +56,7 @@ pub struct CreatePolicy<'info> {
 }
 
 impl<'info> CreatePolicy<'info> {
-    pub fn createpolicy(
+    pub fn create_policy(
         &mut self,
         bumps: &CreatePolicyBumps,
         insured_amount: u64,
@@ -124,6 +128,13 @@ impl<'info> CreatePolicy<'info> {
             .total_insured_value
             .checked_add(insured_amount)
             .ok_or(StableGuardError::CalculationError)?;
+        msg!(
+            "Policy #{} created for buyer {}. Insured amount: {}. Premium paid: {}",
+            new_policy_id,
+            self.buyer.key(),
+            insured_amount,
+            premium_paid
+        );
         Ok(())
     }
 }

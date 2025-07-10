@@ -909,6 +909,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mollusk"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e6a02d1e90ae2731954f3cc6eb0226d4d9808dd550fb06abf6834f4923e1c32"
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2638,6 +2644,7 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "mollusk",
  "proc-macro2",
  "pyth-solana-receiver-sdk",
 ]
