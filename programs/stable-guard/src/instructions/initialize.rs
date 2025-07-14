@@ -7,67 +7,87 @@ use anchor_spl::token::{Mint, Token, TokenAccount};
 pub struct Initialize<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
-    #[account(
-        init,
-        payer=authority,
-        space = 8 + InsurancePool::INIT_SPACE, 
-        seeds = [constants::INSURANCE_POOL_SEED,mint.key().as_ref()],
-        bump,
-    )]
-    pub insurance_pool: Account<'info, InsurancePool>,
+
     #[account(
         init,
         payer = authority,
-        seeds = [constants::LP_MINT_SEED,mint.key().as_ref()],//Updated if multiple pools are initialized then lp tokens are distinct to each pool 
-        mint::decimals = mint.decimals,
-        mint::authority = pool_authority,
+        space = 8 + InsurancePool::INIT_SPACE,
+        seeds = [constants::INSURANCE_POOL_SEED, collateral_mint.key().as_ref()],
         bump
     )]
-    pub lp_mint: Account<'info, Mint>,
+    pub insurance_pool: Account<'info, InsurancePool>,
 
     #[account(
         init,
         payer = authority,
-        seeds= [constants::POOL_SEED,mint.key().as_ref()],
+        seeds = [constants::JUNIOR_LP_MINT_SEED, collateral_mint.key().as_ref()],
         bump,
-        token::mint = mint,
+        mint::decimals = collateral_mint.decimals,
+        mint::authority = pool_authority
+    )]
+    pub junior_lp_mint: Account<'info, Mint>,
+
+    #[account(
+        init,
+        payer = authority,
+        seeds = [constants::JUNIOR_COLLATERAL_POOL_SEED, collateral_mint.key().as_ref()],
+        bump,
+        token::mint = collateral_mint,
         token::authority = pool_authority
     )]
-    pub collateral_token_pool: Account<'info, TokenAccount>,
+    pub junior_collateral_pool: Account<'info, TokenAccount>,
 
-    /// CHECK: This is programs's "master" authority pds. this account doesn't hold any data itself,
-    /// but it servers as the designated acuthority for the lp_mint and collateral_token_pool 
+    #[account(
+        init,
+        payer = authority,
+        seeds = [constants::SENIOR_LP_MINT_SEED, collateral_mint.key().as_ref()],
+        bump,
+        mint::decimals = collateral_mint.decimals,
+        mint::authority = pool_authority
+    )]
+    pub senior_lp_mint: Account<'info, Mint>,
+
+    #[account(
+        init,
+        payer = authority,
+        seeds = [constants::SENIOR_COLLATERAL_POOL_SEED, collateral_mint.key().as_ref()],
+        bump,
+        token::mint = collateral_mint,
+        token::authority = pool_authority
+    )]
+    pub senior_collateral_pool: Account<'info, TokenAccount>,
+
+    ///CHECK: The program's authority PDA
     #[account(
         seeds = [constants::AUTHORITY_SEED],
         bump
     )]
-    pub pool_authority: AccountInfo<'info>, //UncheckedAccount doesnt store any data just an address used as authority
+    pub pool_authority: AccountInfo<'info>,
 
-    pub mint: Account<'info, Mint>,
-
-    pub system_program: Program<'info, System>,
+    pub collateral_mint: Account<'info, Mint>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> Initialize<'info> {
-    pub fn initialize(&mut self,bumps:&InitializeBumps,depeg_threshold:u64) -> Result<()> {
+    pub fn initialize(&mut self, bumps: &InitializeBumps, depeg_threshold: u64) -> Result<()> {
         msg!("StableGuard protocol initialized!");
 
-        self.insurance_pool.set_inner(InsurancePool { 
+        self.insurance_pool.set_inner(InsurancePool {
             authority: self.authority.key(),
-            collateral_mint: self.mint.key(),
-            total_collateral: 0,
-            total_insured_value: 0, 
-            lp_token_mint: self.lp_mint.key(), 
+            collateral_mint: self.collateral_mint.key(),
+            total_insured_amount: 0,
             depeg_threshold,
             last_policy_id: 0,
-            bump: bumps.insurance_pool 
+            bump: bumps.insurance_pool,
+            junior_tranche_collateral: 0,
+            senior_tranche_collateral: 0,
+            junior_lp_mint: self.junior_lp_mint.key(),
+            senior_lp_mint: self.senior_lp_mint.key(),
+            junior_tranche_share: constants::JUNIOR_PREMIUM_SHARE_BPS,
+            senior_tranche_share: constants::SENIOR_PREMIUM_SHARE_BPS,
         });
 
-        msg!("InsurancePool state account created: {}", self.insurance_pool.key());
-        msg!("LP Mint PDA created: {}", self.lp_mint.key());
-        msg!("Collateral Pool Account PDA created: {}", self.collateral_token_pool.key());
-        msg!("Pool Authority PDA: {}", self.pool_authority.key());        
         Ok(())
     }
 }
