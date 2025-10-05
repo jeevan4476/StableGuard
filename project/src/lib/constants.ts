@@ -2,12 +2,14 @@ export const STABLECOINS = {
   USDT: {
     symbol: 'USDT',
     name: 'Tether USD',
-    color: '#FF6B35',
+    // Brand green
+    color: '#26A17B',
   },
   USDC: {
     symbol: 'USDC',
     name: 'USD Coin',
-    color: '#FF8C42',
+    // Brand blue
+    color: '#2775CA',
   },
 } as const;
 
@@ -15,7 +17,8 @@ export const POLICY_CARDS = [
   {
     id: 'buy-insurance',
     title: 'Buy Insurance',
-    description: 'Protect your stablecoin holdings with comprehensive coverage against depegging and smart contract risks',
+    description:
+      'Protect your stablecoin holdings with comprehensive coverage against depegging and smart contract risks',
     icon: 'Shield',
     action: 'Get Protected',
     featured: true,
@@ -23,14 +26,16 @@ export const POLICY_CARDS = [
   {
     id: 'view-coverage',
     title: 'View Coverage',
-    description: 'Monitor your active insurance policies, track claims, and manage your protection portfolio',
+    description:
+      'Monitor your active insurance policies, track claims, and manage your protection portfolio',
     icon: 'Eye',
     action: 'View Policies',
   },
   {
     id: 'become-underwriter',
     title: 'Become Underwriter',
-    description: 'Earn rewards by providing insurance capital and help secure the protocol ecosystem',
+    description:
+      'Earn rewards by providing insurance capital and help secure the protocol ecosystem',
     icon: 'TrendingUp',
     action: 'Start Earning',
   },
